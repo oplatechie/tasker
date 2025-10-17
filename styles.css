@@ -1,0 +1,561 @@
+/* Task Manager Plugin Styles - Todoist-inspired */
+
+.task-manager-container {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.task-manager-layout {
+	display: flex;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* Left Navigation */
+.task-manager-nav {
+	width: 220px;
+	min-width: 220px;
+	border-right: 1px solid var(--background-modifier-border);
+	padding: 16px 8px;
+	overflow-y: auto;
+	background-color: var(--background-secondary);
+	position: relative;
+	z-index: 1;
+}
+
+.nav-item {
+	padding: 8px 12px;
+	margin: 4px 0;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.2s;
+	font-size: 14px;
+	color: var(--text-normal);
+	user-select: none;
+	-webkit-user-select: none;
+	position: relative;
+	z-index: 10;
+	pointer-events: all;
+}
+
+.nav-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.nav-item.active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 500;
+}
+
+.nav-header {
+	padding: 12px 12px 8px 12px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	letter-spacing: 0.5px;
+}
+
+.project-item {
+	font-weight: 500;
+}
+
+.section-item {
+	padding-left: 24px;
+	font-size: 13px;
+	color: var(--text-muted);
+}
+
+/* Main Content Area */
+.task-manager-content {
+	flex: 1;
+	overflow-y: auto;
+	padding: 24px;
+}
+
+.content-header {
+	margin-bottom: 20px;
+}
+
+.content-header h2 {
+	margin: 0 0 16px 0;
+	font-size: 24px;
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+/* ETA Summary */
+.eta-summary {
+	padding: 12px 16px;
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+	margin-bottom: 20px;
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--text-muted);
+	border-left: 3px solid var(--interactive-accent);
+}
+
+/* Task List */
+.task-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.task-item {
+	display: flex;
+	align-items: flex-start;
+	padding: 12px 16px;
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	transition: all 0.2s;
+}
+
+.task-item:hover {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	transform: translateY(-1px);
+}
+
+.task-item input[type="checkbox"] {
+	margin-right: 12px;
+	margin-top: 4px;
+	cursor: pointer;
+	width: 18px;
+	height: 18px;
+	flex-shrink: 0;
+}
+
+.task-content {
+	flex: 1;
+	min-width: 0;
+}
+
+.task-name {
+	font-size: 15px;
+	color: var(--text-normal);
+	margin-bottom: 8px;
+	line-height: 1.4;
+	word-wrap: break-word;
+	outline: none;
+	padding: 2px 4px;
+	border-radius: 3px;
+	transition: background-color 0.2s;
+}
+
+.task-name:focus {
+	background-color: var(--background-modifier-hover);
+	outline: 1px solid var(--interactive-accent);
+}
+
+.task-name:hover {
+	background-color: var(--background-modifier-hover);
+	cursor: text;
+}
+
+.task-metadata {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	font-size: 13px;
+}
+
+.task-metadata span {
+	display: inline-flex;
+	align-items: center;
+	padding: 4px 8px;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	color: var(--text-muted);
+}
+
+.task-due {
+	color: var(--text-accent);
+}
+
+.task-due.overdue {
+	background-color: var(--background-modifier-error);
+	color: var(--text-error);
+	font-weight: 500;
+}
+
+.task-eta {
+	color: var(--text-muted);
+}
+
+.task-project {
+	color: var(--text-muted);
+}
+
+/* Editable Fields */
+.editable-date,
+.editable-eta,
+.editable-project {
+	outline: none;
+	padding: 1px 4px;
+	border-radius: 2px;
+	transition: background-color 0.2s;
+	display: inline-block;
+	min-width: 60px;
+}
+
+.editable-date:focus,
+.editable-eta:focus,
+.editable-project:focus {
+	background-color: var(--background-modifier-hover);
+	outline: 1px solid var(--interactive-accent);
+}
+
+.editable-date:hover,
+.editable-eta:hover,
+.editable-project:hover {
+	background-color: var(--background-modifier-hover);
+	cursor: text;
+}
+
+/* Add Buttons */
+.task-add-due,
+.task-add-eta {
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px 8px;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	font-size: 12px;
+	transition: all 0.2s;
+	border: 1px dashed var(--background-modifier-border);
+}
+
+.task-add-due:hover,
+.task-add-eta:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+}
+
+/* Empty State */
+.empty-state {
+	padding: 40px 20px;
+	text-align: center;
+	color: var(--text-muted);
+	font-size: 14px;
+}
+
+/* Task Format Example in Settings */
+.task-format-example {
+	background-color: var(--background-secondary);
+	padding: 12px;
+	border-radius: 4px;
+	font-family: var(--font-monospace);
+	font-size: 13px;
+	overflow-x: auto;
+	margin: 12px 0;
+}
+
+/* Scrollbar Styling */
+.task-manager-nav::-webkit-scrollbar,
+.task-manager-content::-webkit-scrollbar {
+	width: 8px;
+}
+
+.task-manager-nav::-webkit-scrollbar-track,
+.task-manager-content::-webkit-scrollbar-track {
+	background: var(--background-secondary);
+}
+
+.task-manager-nav::-webkit-scrollbar-thumb,
+.task-manager-content::-webkit-scrollbar-thumb {
+	background: var(--background-modifier-border);
+	border-radius: 4px;
+}
+
+.task-manager-nav::-webkit-scrollbar-thumb:hover,
+.task-manager-content::-webkit-scrollbar-thumb:hover {
+	background: var(--text-muted);
+}
+
+/* Dark Mode Adjustments */
+.theme-dark .task-item {
+	background-color: var(--background-primary-alt);
+}
+
+.theme-dark .task-item:hover {
+	box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* New Task Button */
+.new-task-btn {
+	background-color: var(--interactive-accent) !important;
+	color: var(--text-on-accent) !important;
+	font-weight: 600;
+	margin-bottom: 12px;
+}
+
+.new-task-btn:hover {
+	opacity: 0.9;
+	background-color: var(--interactive-accent) !important;
+}
+
+.new-task-text {
+	font-size: 15px;
+}
+
+/* Timeline Header */
+.timeline-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.add-timeline-btn {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	font-size: 16px;
+	font-weight: bold;
+	transition: transform 0.2s;
+}
+
+.add-timeline-btn:hover {
+	transform: scale(1.1);
+}
+
+/* Date Group Header */
+.date-group-header {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-accent);
+	padding: 12px 0 8px 0;
+	margin-top: 8px;
+	border-bottom: 2px solid var(--background-modifier-border);
+}
+
+/* Modal Styles */
+.modal-input-container {
+	margin: 16px 0;
+}
+
+.modal-input-container label {
+	display: block;
+	margin-bottom: 8px;
+	font-weight: 500;
+	color: var(--text-normal);
+}
+
+.modal-input-container input {
+	width: 100%;
+	padding: 8px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 14px;
+}
+
+.modal-input-container input:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
+.modal-button-container {
+	display: flex;
+	justify-content: flex-end;
+	gap: 12px;
+	margin-top: 24px;
+}
+
+.modal-button-container button {
+	padding: 8px 16px;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	color: var(--text-normal);
+	cursor: pointer;
+	font-size: 14px;
+	transition: all 0.2s;
+}
+
+.modal-button-container button:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.modal-button-container button.mod-cta {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.modal-button-container button.mod-cta:hover {
+	opacity: 0.9;
+}
+
+/* Toggle Icon */
+.toggle-icon,
+.mobile-toggle-icon {
+	display: inline-block;
+	width: 20px;
+	text-align: center;
+	margin-right: 4px;
+	cursor: pointer;
+	user-select: none;
+	font-size: 12px;
+}
+
+.toggle-icon:hover,
+.mobile-toggle-icon:hover {
+	color: var(--interactive-accent);
+}
+
+/* Mobile View Styles */
+.task-manager-mobile {
+	padding: 0;
+}
+
+.mobile-nav-container {
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.mobile-nav-card {
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	padding: 16px;
+	cursor: pointer;
+	transition: all 0.2s;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-nav-card:active {
+	transform: scale(0.98);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-nav-card.new-task-card {
+	background-color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 600;
+}
+
+.mobile-nav-card.new-task-card .mobile-nav-card-title {
+	color: var(--text-on-accent);
+}
+
+.mobile-nav-card-title {
+	font-size: 16px;
+	font-weight: 500;
+	color: var(--text-normal);
+}
+
+.mobile-project-card {
+	padding: 0;
+}
+
+.mobile-project-header {
+	padding: 16px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.mobile-section-header {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	padding: 8px 0;
+	margin-top: 8px;
+	letter-spacing: 0.5px;
+}
+
+.mobile-subprojects {
+	border-top: 1px solid var(--background-modifier-border);
+	padding: 8px 16px 16px 16px;
+	background-color: var(--background-secondary);
+}
+
+.mobile-subproject-item {
+	padding: 12px;
+	margin: 4px 0;
+	border-radius: 4px;
+	background-color: var(--background-primary);
+	cursor: pointer;
+	transition: background-color 0.2s;
+}
+
+.mobile-subproject-item:active {
+	background-color: var(--background-modifier-hover);
+}
+
+.mobile-header {
+	display: flex;
+	align-items: center;
+	padding: 16px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+
+.mobile-back-btn {
+	font-size: 16px;
+	color: var(--interactive-accent);
+	cursor: pointer;
+	padding: 8px;
+	margin-right: 12px;
+	user-select: none;
+}
+
+.mobile-back-btn:active {
+	opacity: 0.7;
+}
+
+.mobile-title {
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--text-normal);
+	flex: 1;
+}
+
+.mobile-content {
+	padding: 16px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+	.task-manager-layout {
+		display: none;
+	}
+
+	.task-item {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.task-item input[type="checkbox"] {
+		margin-bottom: 8px;
+	}
+
+	.eta-summary {
+		font-size: 13px;
+		padding: 10px 12px;
+	}
+
+	.content-header h2 {
+		font-size: 20px;
+	}
+}

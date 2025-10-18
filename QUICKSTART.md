@@ -23,6 +23,23 @@ npm run build
 # Then copy files again (see step 2 above)
 ```
 
+## Creating Tasks (Context-Aware)
+
+The **+ New Task** button creates tasks based on your current view:
+
+| Current View | Task Created With | Example |
+|--------------|-------------------|---------|
+| **Today** | Due date = today | `- [ ] New Task due::2025-10-17 eta::1:00 #tlog` |
+| **Specific Project** (e.g., work/dev) | Project tag set | `- [ ] New Task eta::1:00 #tlog/work/dev` |
+| **Project + Section** (e.g., work/dev/backend) | Full path tag | `- [ ] New Task eta::1:00 #tlog/work/dev/backend` |
+| **Timeline Views** | Due date = today | `- [ ] New Task due::2025-10-17 eta::1:00 #tlog` |
+| **Done** | Due date = today | `- [ ] New Task due::2025-10-17 eta::1:00 #tlog` |
+
+**Tips:**
+- Navigate to a specific project/section first, then click + to create a task in that context
+- All task fields (name, due date, ETA, project) are editable by clicking on them
+- Press Enter to save edits
+
 ## Task Format Examples
 
 ### Basic Task

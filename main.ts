@@ -80,17 +80,24 @@ export default class TaskManagerPlugin extends Plugin {
 			}
 		});
 
-		// Add command to create new task
+		// Add command to create new task (opens modal)
 		this.addCommand({
 			id: 'create-new-task',
 			name: 'Create New Task',
-			callback: async () => {
+			callback: () => {
 				const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASK_MANAGER);
 				if (leaves.length > 0) {
 					const view = leaves[0].view as TaskManagerView;
-					await view.createNewTask();
+					view.showNewTaskModal();
 				} else {
-					new Notice('Please open Task Manager first');
+					// Create task manager if not open, then show modal
+					this.activateView().then(() => {
+						const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASK_MANAGER);
+						if (leaves.length > 0) {
+							const view = leaves[0].view as TaskManagerView;
+							view.showNewTaskModal();
+						}
+					});
 				}
 			}
 		});
@@ -394,13 +401,11 @@ class TaskManagerView extends ItemView {
 	renderMobileNavigation(container: HTMLElement) {
 		const navContainer = container.createDiv({ cls: 'mobile-nav-container' });
 
-		// New Task button
+		// New Task button (opens modal)
 		const newTaskCard = navContainer.createDiv({ cls: 'mobile-nav-card new-task-card' });
 		newTaskCard.createSpan({ text: '+ New Task', cls: 'mobile-nav-card-title' });
-		newTaskCard.addEventListener('click', async () => {
-			await this.createNewTask();
-			await this.loadTasks();
-			this.renderView();
+		newTaskCard.addEventListener('click', () => {
+			this.showNewTaskModal();
 		});
 
 		// Today card
@@ -684,6 +689,17 @@ class TaskManagerView extends ItemView {
 		const todayTasks = this.tasks.filter(task => {
 			if (task.status === 'done') return false;
 			if (!task.dueDate) return false;
+
+			// For recurring templates: only hide if there's a materialized occurrence
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				const hasMaterialized = this.tasks.some(t =>
+					!t.isRecurring &&
+					t.taskName === task.taskName &&
+					t.dueDate === task.dueDate
+				);
+				if (hasMaterialized) return false; // Hide template if occurrence exists
+			}
+
 			return task.dueDate === todayStr || this.isOverdue(task.dueDate);
 		});
 
@@ -707,8 +723,22 @@ class TaskManagerView extends ItemView {
 		const header = contentEl.createDiv({ cls: 'content-header' });
 		header.createEl('h2', { text: 'Done' });
 
-		// Filter completed tasks
-		const doneTasks = this.tasks.filter(task => task.status === 'done');
+		// Filter completed tasks (exclude recurring templates)
+		const doneTasks = this.tasks.filter(task => {
+			if (task.status !== 'done') return false;
+
+			// For recurring templates: only hide if there's a materialized occurrence
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				const hasMaterialized = this.tasks.some(t =>
+					!t.isRecurring &&
+					t.taskName === task.taskName &&
+					t.dueDate === task.dueDate
+				);
+				if (hasMaterialized) return false;
+			}
+
+			return true;
+		});
 
 		// Calculate total ETA
 		const totalEta = this.calculateTotalEta(doneTasks);
@@ -733,8 +763,22 @@ class TaskManagerView extends ItemView {
 			: this.selectedProject || 'Projects';
 		header.createEl('h2', { text: title });
 
-		// Filter tasks by project/section (exclude completed)
-		let filteredTasks = this.tasks.filter(task => task.status !== 'done');
+		// Filter tasks by project/section (exclude completed and recurring templates with occurrences)
+		let filteredTasks = this.tasks.filter(task => {
+			if (task.status === 'done') return false;
+
+			// For recurring templates: only hide if there's a materialized occurrence
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				const hasMaterialized = this.tasks.some(t =>
+					!t.isRecurring &&
+					t.taskName === task.taskName &&
+					t.dueDate === task.dueDate
+				);
+				if (hasMaterialized) return false;
+			}
+
+			return true;
+		});
 		if (this.selectedProject) {
 			filteredTasks = filteredTasks.filter(task => task.project === this.selectedProject);
 		}
@@ -897,6 +941,20 @@ class TaskManagerView extends ItemView {
 				projectSpan.blur();
 			}
 		});
+
+		// Recurring indicator/editor
+		if (task.isRecurring) {
+			const recurringEl = metadata.createSpan({ cls: 'task-recurring' });
+			recurringEl.setText(`🔄 ${task.recurringPattern}`);
+			recurringEl.addEventListener('click', () => {
+				this.showRecurringEditor(task);
+			});
+		} else {
+			const addRecurringBtn = metadata.createSpan({ cls: 'task-add-recurring', text: '+ Recurring' });
+			addRecurringBtn.addEventListener('click', () => {
+				this.showRecurringEditor(task);
+			});
+		}
 	}
 
 	async toggleTask(task: Task) {
@@ -910,21 +968,98 @@ class TaskManagerView extends ItemView {
 		const content = await this.app.vault.read(file);
 		const lines = content.split('\n');
 
-		if (task.lineNumber < lines.length) {
-			const line = lines[task.lineNumber];
+		if (task.status === 'todo') {
+			// COMPLETING A TASK
 
-			if (task.status === 'todo') {
-				// Mark as done and add strikethrough
-				lines[task.lineNumber] = line.replace('- [ ]', '- [x]');
-			} else {
-				// Mark as todo and remove strikethrough
+			// Check if this is a virtual (not materialized) recurring task
+			if (task.isGeneratedRecurring && task.lineNumber === -1) {
+				// This is a virtual recurring task - need to find the template and generate next occurrence
+				const templateTask = this.tasks.find(t =>
+					t.isRecurring &&
+					!t.isGeneratedRecurring &&
+					t.taskName === task.taskName &&
+					t.project === task.project &&
+					t.section === task.section
+				);
+
+				if (templateTask) {
+					// Materialize the current occurrence as done and add next occurrence
+					const currentTaskLine = this.buildRecurringTaskInstance(task, task.dueDate!).replace('- [ ]', '- [x]');
+					const nextOccurrence = this.calculateNextOccurrences(templateTask, 1)[0];
+
+					if (nextOccurrence) {
+						const nextTaskLine = this.buildRecurringTaskInstance(templateTask, nextOccurrence);
+
+						// Add completed task at bottom
+						lines.push('');
+						lines.push(currentTaskLine);
+
+						// Add next occurrence at top (after headers)
+						let insertIndex = 0;
+						for (let i = 0; i < lines.length; i++) {
+							if (!lines[i].startsWith('#') && lines[i].trim() !== '') {
+								insertIndex = i;
+								break;
+							}
+						}
+						lines.splice(insertIndex, 0, nextTaskLine);
+
+						new Notice(`Task completed! Next occurrence: ${nextOccurrence}`);
+					}
+				}
+			} else if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
+				// This is a real task in the file (materialized occurrence or regular task)
+				const line = lines[task.lineNumber];
+				const completedLine = line.replace('- [ ]', '- [x]');
+
+				// Remove from current position
+				lines.splice(task.lineNumber, 1);
+
+				// Check if this task is part of a recurring series (find matching template)
+				const templateTask = this.tasks.find(t =>
+					t.isRecurring &&
+					!t.isGeneratedRecurring &&
+					t.taskName === task.taskName &&
+					t.project === task.project &&
+					t.section === task.section
+				);
+
+				if (templateTask) {
+					// This is a recurring occurrence - generate next one
+					const nextOccurrence = this.calculateNextOccurrences(templateTask, 1)[0];
+
+					if (nextOccurrence) {
+						const nextTaskLine = this.buildRecurringTaskInstance(templateTask, nextOccurrence);
+
+						// Add next occurrence at top (after headers)
+						let insertIndex = 0;
+						for (let i = 0; i < lines.length; i++) {
+							if (!lines[i].startsWith('#') && lines[i].trim() !== '') {
+								insertIndex = i;
+								break;
+							}
+						}
+						lines.splice(insertIndex, 0, nextTaskLine);
+
+						new Notice(`Task completed! Next occurrence: ${nextOccurrence}`);
+					}
+				}
+
+				// Add completed task at bottom
+				lines.push('');
+				lines.push(completedLine);
+			}
+		} else {
+			// UNCOMPLETING A TASK
+			if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
+				const line = lines[task.lineNumber];
 				lines[task.lineNumber] = line.replace('- [x]', '- [ ]');
 			}
-
-			await this.app.vault.modify(file, lines.join('\n'));
-			await this.loadTasks();
-			this.renderView();
 		}
+
+		await this.app.vault.modify(file, lines.join('\n'));
+		await this.loadTasks();
+		this.renderView();
 	}
 
 	async updateTask(task: Task) {
@@ -943,7 +1078,7 @@ class TaskManagerView extends ItemView {
 			const checkbox = task.status === 'done' ? '- [x]' : '- [ ]';
 			const taskIdentifier = this.plugin.settings.taskIdentifier;
 
-			// Build the project/section tag
+			// Build the project/section tag - ALWAYS include at least the base tag
 			let projectTag = taskIdentifier;
 			if (task.project) {
 				projectTag += '/' + task.project;
@@ -963,8 +1098,34 @@ class TaskManagerView extends ItemView {
 				newLine += ` eta::${task.eta}`;
 			}
 
-			if (task.project) {
-				newLine += ` ${projectTag}`;
+			// ALWAYS add the tag (even if just #tlog)
+			newLine += ` ${projectTag}`;
+
+			// Add recurring fields if this is a recurring task
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				newLine += ` recurring::${task.recurringPattern}`;
+
+				if (task.recurringStarting) {
+					newLine += ` starting::${task.recurringStarting}`;
+				}
+
+				if (task.recurringEnding) {
+					newLine += ` ending::${task.recurringEnding}`;
+				}
+
+				if (task.recurringWDay && task.recurringWDay.length > 0) {
+					const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+					const days = task.recurringWDay.map(d => dayNames[d]).join(',');
+					newLine += ` wday::[${days}]`;
+				}
+
+				if (task.recurringDay && task.recurringDay.length > 0) {
+					newLine += ` day::[${task.recurringDay.join(',')}]`;
+				}
+
+				if (task.recurringMonth && task.recurringMonth.length > 0) {
+					newLine += ` month::[${task.recurringMonth.join(',')}]`;
+				}
 			}
 
 			lines[task.lineNumber] = newLine;
@@ -1034,10 +1195,34 @@ class TaskManagerView extends ItemView {
 		const content = await this.app.vault.read(file);
 		const lines = content.split('\n');
 
-		// Create new task at the top of the file (after any headers)
+		// Determine due date and project based on current view
 		const today = this.formatDate(new Date());
 		const taskIdentifier = this.plugin.settings.taskIdentifier;
-		const newTaskLine = `- [ ] New Task due::${today} eta::1:00 ${taskIdentifier}`;
+		let dueDate = '';
+		let projectTag = taskIdentifier;
+
+		// Set due date based on current view
+		if (this.currentView === 'today') {
+			dueDate = `due::${today}`;
+		} else if (this.currentView === 'custom-timeline' && this.selectedTimelineView) {
+			// For timeline views, set due date to today by default
+			dueDate = `due::${today}`;
+		} else if (this.currentView === 'done') {
+			// For done view, just use today
+			dueDate = `due::${today}`;
+		}
+		// For 'projects' view without due date, don't add due date
+
+		// Set project tag based on selected project/section
+		if (this.selectedProject) {
+			projectTag += '/' + this.selectedProject;
+			if (this.selectedSection) {
+				projectTag += '/' + this.selectedSection;
+			}
+		}
+
+		// Build the new task line
+		const newTaskLine = `- [ ] New Task ${dueDate} eta::1:00 ${projectTag}`.trim().replace(/\s+/g, ' ');
 
 		// Find first non-header line or insert at beginning
 		let insertIndex = 0;
@@ -1051,7 +1236,10 @@ class TaskManagerView extends ItemView {
 		lines.splice(insertIndex, 0, newTaskLine);
 		await this.app.vault.modify(file, lines.join('\n'));
 
-		new Notice('New task created!');
+		const context = this.selectedProject
+			? `in ${this.selectedProject}${this.selectedSection ? '/' + this.selectedSection : ''}`
+			: this.currentView;
+		new Notice(`New task created ${context}!`);
 	}
 
 	async checkAndGenerateRecurringTasks() {
@@ -1118,22 +1306,31 @@ class TaskManagerView extends ItemView {
 		const recurringTasks = this.tasks.filter(t => t.isRecurring && !t.isGeneratedRecurring);
 
 		for (const recurringTask of recurringTasks) {
-			// Generate future occurrences for timeline views
-			const nextOccurrences = this.calculateNextOccurrences(recurringTask, 30); // Next 30 occurrences
+			// Only generate the NEXT occurrence (not yet materialized)
+			const nextOccurrences = this.calculateNextOccurrences(recurringTask, 1); // Only next 1 occurrence
 
-			for (const occurrence of nextOccurrences) {
-				const occurrenceDate = this.formatDate(new Date(occurrence));
+			if (nextOccurrences.length > 0) {
+				const occurrenceDate = nextOccurrences[0];
 
-				// Create a virtual task for this occurrence
-				const virtualTask: Task = {
-					...recurringTask,
-					dueDate: occurrenceDate,
-					isGeneratedRecurring: true,
-					lineNumber: -1, // Virtual task, no line number
-					rawLine: ''
-				};
+				// Check if this occurrence is already materialized in tasks.md
+				const alreadyExists = this.tasks.some(t =>
+					t.taskName === recurringTask.taskName &&
+					t.dueDate === occurrenceDate &&
+					!t.isRecurring
+				);
 
-				generatedTasks.push(virtualTask);
+				// Only create virtual task if it doesn't already exist
+				if (!alreadyExists) {
+					const virtualTask: Task = {
+						...recurringTask,
+						dueDate: occurrenceDate,
+						isGeneratedRecurring: true,
+						lineNumber: -1, // Virtual task, no line number
+						rawLine: ''
+					};
+
+					generatedTasks.push(virtualTask);
+				}
 			}
 		}
 
@@ -1162,24 +1359,84 @@ class TaskManagerView extends ItemView {
 		let currentDate = new Date(startDate);
 		currentDate.setHours(0, 0, 0, 0);
 
-		// Move to next occurrence if start date is in the past
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
 
-		while (currentDate < today) {
-			this.advanceDate(currentDate, interval, unit);
+		// Safety counter to prevent infinite loops
+		let safetyCounter = 0;
+		const MAX_ITERATIONS = 1000;
+
+		// Find the first occurrence from the starting date that matches constraints
+		// For weekly/monthly/yearly with constraints, we need to check DAY BY DAY
+		// from the starting date until we find a match
+		if (unit === 'week' && task.recurringWDay && task.recurringWDay.length > 0) {
+			// For weekly with specific days, advance day by day from starting date
+			// until we find a matching day of week
+			while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && safetyCounter < MAX_ITERATIONS) {
+				currentDate.setDate(currentDate.getDate() + 1);
+				safetyCounter++;
+			}
+		} else if (unit === 'month' && task.recurringDay && task.recurringDay.length > 0) {
+			// For monthly with specific days, advance day by day from starting date
+			// until we find a matching day of month
+			while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && safetyCounter < MAX_ITERATIONS) {
+				currentDate.setDate(currentDate.getDate() + 1);
+				safetyCounter++;
+			}
+		} else if (unit === 'year' && task.recurringMonth && task.recurringMonth.length > 0) {
+			// For yearly with specific dates, advance day by day from starting date
+			// until we find a matching month-day
+			while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && safetyCounter < MAX_ITERATIONS) {
+				currentDate.setDate(currentDate.getDate() + 1);
+				safetyCounter++;
+			}
 		}
 
-		// Generate occurrences
-		while (occurrences.length < count) {
+		// Now advance to today or later if starting date is in the past
+		safetyCounter = 0;
+		while (currentDate < today && safetyCounter < MAX_ITERATIONS) {
+			// Check if current date matches before advancing
+			if (this.matchesRecurrenceConstraints(currentDate, task, unit)) {
+				// Good starting point, just advance by interval
+				this.advanceDate(currentDate, interval, unit);
+			} else {
+				// Advance day by day until we find a match
+				currentDate.setDate(currentDate.getDate() + 1);
+			}
+			safetyCounter++;
+		}
+
+		// Final check: make sure we're on a valid occurrence
+		safetyCounter = 0;
+		while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && safetyCounter < MAX_ITERATIONS) {
+			currentDate.setDate(currentDate.getDate() + 1);
+			safetyCounter++;
+		}
+
+		// Generate occurrences with safety counter
+		safetyCounter = 0;
+		while (occurrences.length < count && safetyCounter < MAX_ITERATIONS) {
 			if (endDate && currentDate > endDate) break;
 
 			// Check if this occurrence matches the day constraints
 			if (this.matchesRecurrenceConstraints(currentDate, task, unit)) {
 				occurrences.push(this.formatDate(currentDate));
+
+				// Advance to next valid occurrence
+				this.advanceDate(currentDate, interval, unit);
+
+				// For constrained recurrences, make sure we land on a valid day
+				let innerSafety = 0;
+				while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && innerSafety < MAX_ITERATIONS) {
+					currentDate.setDate(currentDate.getDate() + 1);
+					innerSafety++;
+				}
+			} else {
+				// Shouldn't happen, but advance day by day to find next match
+				currentDate.setDate(currentDate.getDate() + 1);
 			}
 
-			this.advanceDate(currentDate, interval, unit);
+			safetyCounter++;
 		}
 
 		return occurrences;
@@ -1259,29 +1516,74 @@ class TaskManagerView extends ItemView {
 		const endDate = new Date(today);
 		endDate.setDate(endDate.getDate() + this.selectedTimelineView.days);
 
-		// Filter tasks in date range
+		// Filter overdue tasks (before today, hide templates only if occurrence exists)
+		const overdueTasks = this.tasks.filter(task => {
+			if (task.status === 'done') return false;
+			if (!task.dueDate) return false;
+
+			// For recurring templates: only hide if there's a materialized occurrence
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				const hasMaterialized = this.tasks.some(t =>
+					!t.isRecurring &&
+					t.taskName === task.taskName &&
+					t.dueDate === task.dueDate
+				);
+				if (hasMaterialized) return false;
+			}
+
+			return this.isOverdue(task.dueDate);
+		});
+
+		// Filter tasks in date range (today onwards, hide templates only if occurrence exists)
 		const timelineTasks = this.tasks.filter(task => {
 			if (task.status === 'done') return false;
 			if (!task.dueDate) return false;
+
+			// For recurring templates: only hide if there's a materialized occurrence
+			if (task.isRecurring && !task.isGeneratedRecurring) {
+				const hasMaterialized = this.tasks.some(t =>
+					!t.isRecurring &&
+					t.taskName === task.taskName &&
+					t.dueDate === task.dueDate
+				);
+				if (hasMaterialized) return false;
+			}
+
 			const taskDate = new Date(task.dueDate);
 			return taskDate >= today && taskDate <= endDate;
 		});
 
-		// Sort by date
+		// Sort both by date
+		overdueTasks.sort((a, b) => {
+			if (!a.dueDate || !b.dueDate) return 0;
+			return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+		});
 		timelineTasks.sort((a, b) => {
 			if (!a.dueDate || !b.dueDate) return 0;
 			return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
 		});
 
-		// Calculate total ETA
-		const totalEta = this.calculateTotalEta(timelineTasks);
+		// Calculate total ETA (including overdue)
+		const allTasks = [...overdueTasks, ...timelineTasks];
+		const totalEta = this.calculateTotalEta(allTasks);
 		const etaDisplay = contentEl.createDiv({ cls: 'eta-summary' });
 		etaDisplay.createSpan({ text: `Total Time: ${totalEta}` });
 
 		// Render tasks grouped by date
 		const taskList = contentEl.createDiv({ cls: 'task-list' });
-		let currentDate = '';
 
+		// Render overdue section if there are overdue tasks
+		if (overdueTasks.length > 0) {
+			const overdueHeader = taskList.createDiv({ cls: 'date-group-header overdue-header' });
+			overdueHeader.setText(`⚠️ Overdue (${overdueTasks.length})`);
+
+			overdueTasks.forEach(task => {
+				this.renderTask(taskList, task);
+			});
+		}
+
+		// Render upcoming tasks grouped by date
+		let currentDate = '';
 		timelineTasks.forEach(task => {
 			if (task.dueDate && task.dueDate !== currentDate) {
 				currentDate = task.dueDate;
@@ -1291,7 +1593,7 @@ class TaskManagerView extends ItemView {
 			this.renderTask(taskList, task);
 		});
 
-		if (timelineTasks.length === 0) {
+		if (allTasks.length === 0) {
 			taskList.createDiv({ text: 'No tasks in this timeline', cls: 'empty-state' });
 		}
 	}
@@ -1314,6 +1616,72 @@ class TaskManagerView extends ItemView {
 		}
 	}
 
+	showNewTaskModal() {
+		const modal = new NewTaskModal(this.app, this, async (taskData: {
+			name: string;
+			dueDate: string | null;
+			eta: string | null;
+			project: string | null;
+			section: string | null;
+		}) => {
+			await this.createNewTaskFromModal(taskData);
+		});
+		modal.open();
+	}
+
+	async createNewTaskFromModal(taskData: {
+		name: string;
+		dueDate: string | null;
+		eta: string | null;
+		project: string | null;
+		section: string | null;
+	}) {
+		const file = this.app.vault.getAbstractFileByPath(this.plugin.settings.taskFile);
+
+		if (!file || !(file instanceof TFile)) {
+			new Notice('Task file not found');
+			return;
+		}
+
+		const content = await this.app.vault.read(file);
+		const lines = content.split('\n');
+
+		const taskIdentifier = this.plugin.settings.taskIdentifier;
+		let projectTag = taskIdentifier;
+		if (taskData.project) {
+			projectTag += '/' + taskData.project;
+			if (taskData.section) {
+				projectTag += '/' + taskData.section;
+			}
+		}
+
+		// Build the new task line
+		let newTaskLine = `- [ ] ${taskData.name}`;
+		if (taskData.dueDate) {
+			newTaskLine += ` due::${taskData.dueDate}`;
+		}
+		if (taskData.eta) {
+			newTaskLine += ` eta::${taskData.eta}`;
+		}
+		newTaskLine += ` ${projectTag}`;
+
+		// Find first non-header line or insert at beginning
+		let insertIndex = 0;
+		for (let i = 0; i < lines.length; i++) {
+			if (!lines[i].startsWith('#') && lines[i].trim() !== '') {
+				insertIndex = i;
+				break;
+			}
+		}
+
+		lines.splice(insertIndex, 0, newTaskLine);
+		await this.app.vault.modify(file, lines.join('\n'));
+
+		new Notice('Task created!');
+		await this.loadTasks();
+		this.renderView();
+	}
+
 	showAddTimelineDialog() {
 		// Create a simple modal for adding timeline view
 		const modal = new TimelineViewModal(this.app, (name: string, days: number) => {
@@ -1327,6 +1695,60 @@ class TaskManagerView extends ItemView {
 			this.renderView();
 		});
 		modal.open();
+	}
+
+	showRecurringEditor(task: Task) {
+		const modal = new RecurringTaskModal(this.app, task, async (updatedTask: Task) => {
+			// If converting to recurring or editing recurring settings
+			if (updatedTask.isRecurring) {
+				// Set starting date if not provided
+				if (!updatedTask.recurringStarting) {
+					updatedTask.recurringStarting = this.formatDate(new Date());
+				}
+
+				// Calculate first occurrence based on recurring settings
+				const firstOccurrence = this.calculateNextOccurrences(updatedTask, 1)[0];
+				if (firstOccurrence) {
+					// Update the template's due date to match first occurrence
+					updatedTask.dueDate = firstOccurrence;
+				}
+			}
+
+			// Save the updated task
+			await this.updateTask(updatedTask);
+
+			// If this is a recurring task, create its first occurrence (if not already exists)
+			if (updatedTask.isRecurring && !updatedTask.isGeneratedRecurring) {
+				await this.createFirstOccurrence(updatedTask);
+			}
+
+			// Reload tasks to get updated state
+			await this.loadTasks();
+			this.renderView();
+		});
+		modal.open();
+	}
+
+	async createFirstOccurrence(task: Task) {
+		const file = this.app.vault.getAbstractFileByPath(this.plugin.settings.taskFile);
+		if (!file || !(file instanceof TFile)) return;
+
+		const content = await this.app.vault.read(file);
+		const lines = content.split('\n');
+
+		// Get the first occurrence date
+		const occurrences = this.calculateNextOccurrences(task, 1);
+		if (occurrences.length === 0) return;
+
+		const firstOccurrence = occurrences[0];
+		const newTaskLine = this.buildRecurringTaskInstance(task, firstOccurrence);
+
+		// Insert after the recurring task template
+		let insertIndex = task.lineNumber + 1;
+		lines.splice(insertIndex, 0, newTaskLine);
+
+		await this.app.vault.modify(file, lines.join('\n'));
+		new Notice(`First occurrence created for ${firstOccurrence}`);
 	}
 }
 
@@ -1384,6 +1806,347 @@ class TimelineViewModal extends Modal {
 		cancelBtn.addEventListener('click', () => {
 			this.close();
 		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
+// Modal for editing recurring tasks
+class RecurringTaskModal extends Modal {
+	task: Task;
+	onSubmit: (task: Task) => void;
+
+	// Input elements
+	recurringTypeSelect: HTMLSelectElement;
+	intervalInput: HTMLInputElement;
+	startingInput: HTMLInputElement;
+	endingInput: HTMLInputElement;
+	wdayContainer: HTMLElement;
+	dayContainer: HTMLElement;
+	monthContainer: HTMLElement;
+	wdayCheckboxes: { [key: string]: HTMLInputElement } = {};
+	dayInput: HTMLInputElement;
+	monthInput: HTMLInputElement;
+
+	constructor(app: App, task: Task, onSubmit: (task: Task) => void) {
+		super(app);
+		this.task = task;
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: 'Edit Recurring Task' });
+
+		// Recurring pattern type (day/week/month/year)
+		const typeContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		typeContainer.createEl('label', { text: 'Recurrence Type:' });
+		this.recurringTypeSelect = typeContainer.createEl('select');
+
+		const options = [
+			{ value: '', text: 'None (One-time task)' },
+			{ value: 'day', text: 'Daily' },
+			{ value: 'week', text: 'Weekly' },
+			{ value: 'month', text: 'Monthly' },
+			{ value: 'year', text: 'Yearly' }
+		];
+
+		options.forEach(opt => {
+			const option = this.recurringTypeSelect.createEl('option', {
+				value: opt.value,
+				text: opt.text
+			});
+		});
+
+		// Set current value
+		if (this.task.isRecurring && this.task.recurringPattern) {
+			const match = this.task.recurringPattern.match(/(\d+)(day|week|month|year)/);
+			if (match) {
+				this.recurringTypeSelect.value = match[2];
+			}
+		}
+
+		// Interval
+		const intervalContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		intervalContainer.createEl('label', { text: 'Every N (interval):' });
+		this.intervalInput = intervalContainer.createEl('input', {
+			type: 'number',
+			placeholder: '1'
+		});
+		this.intervalInput.value = '1';
+		if (this.task.recurringPattern) {
+			const match = this.task.recurringPattern.match(/(\d+)/);
+			if (match) {
+				this.intervalInput.value = match[1];
+			}
+		}
+
+		// Starting date
+		const startingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		startingContainer.createEl('label', { text: 'Starting Date (YYYY-MM-DD):' });
+		this.startingInput = startingContainer.createEl('input', {
+			type: 'text',
+			placeholder: new Date().toISOString().split('T')[0]
+		});
+		if (this.task.recurringStarting) {
+			this.startingInput.value = this.task.recurringStarting;
+		}
+
+		// Ending date
+		const endingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		endingContainer.createEl('label', { text: 'Ending Date (YYYY-MM-DD or "never"):' });
+		this.endingInput = endingContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'never'
+		});
+		if (this.task.recurringEnding) {
+			this.endingInput.value = this.task.recurringEnding;
+		}
+
+		// Weekly: days of week
+		this.wdayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-wday' });
+		this.wdayContainer.createEl('label', { text: 'Weekly: Days of week' });
+		const wdayGrid = this.wdayContainer.createDiv({ cls: 'checkbox-grid' });
+		const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		dayNames.forEach((day, index) => {
+			const checkboxContainer = wdayGrid.createDiv({ cls: 'checkbox-item' });
+			const checkbox = checkboxContainer.createEl('input', { type: 'checkbox' });
+			checkbox.id = `wday-${index}`;
+			this.wdayCheckboxes[index] = checkbox;
+			checkboxContainer.createEl('label', { text: day, attr: { for: `wday-${index}` } });
+
+			// Set current values
+			if (this.task.recurringWDay && this.task.recurringWDay.includes(index)) {
+				checkbox.checked = true;
+			}
+		});
+		this.wdayContainer.style.display = this.recurringTypeSelect.value === 'week' ? 'block' : 'none';
+
+		// Monthly: days of month
+		this.dayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-day' });
+		this.dayContainer.createEl('label', { text: 'Monthly: Days of month (comma-separated, e.g., 1,15,30):' });
+		this.dayInput = this.dayContainer.createEl('input', {
+			type: 'text',
+			placeholder: '1,15'
+		});
+		if (this.task.recurringDay && this.task.recurringDay.length > 0) {
+			this.dayInput.value = this.task.recurringDay.join(',');
+		}
+		this.dayContainer.style.display = this.recurringTypeSelect.value === 'month' ? 'block' : 'none';
+
+		// Yearly: specific dates
+		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
+		this.monthContainer.createEl('label', { text: 'Yearly: Dates (MM-DD format, comma-separated, e.g., 12-01,06-15):' });
+		this.monthInput = this.monthContainer.createEl('input', {
+			type: 'text',
+			placeholder: '12-01,06-15'
+		});
+		if (this.task.recurringMonth && this.task.recurringMonth.length > 0) {
+			this.monthInput.value = this.task.recurringMonth.join(',');
+		}
+		this.monthContainer.style.display = this.recurringTypeSelect.value === 'year' ? 'block' : 'none';
+
+		// Update visibility when type changes
+		this.recurringTypeSelect.addEventListener('change', () => {
+			const type = this.recurringTypeSelect.value;
+			this.wdayContainer.style.display = type === 'week' ? 'block' : 'none';
+			this.dayContainer.style.display = type === 'month' ? 'block' : 'none';
+			this.monthContainer.style.display = type === 'year' ? 'block' : 'none';
+		});
+
+		// Buttons
+		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+
+		const submitBtn = buttonContainer.createEl('button', { text: 'Save', cls: 'mod-cta' });
+		submitBtn.addEventListener('click', () => {
+			this.saveRecurring();
+		});
+
+		const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+		cancelBtn.addEventListener('click', () => {
+			this.close();
+		});
+	}
+
+	saveRecurring() {
+		const type = this.recurringTypeSelect.value;
+
+		if (type === '') {
+			// Remove recurring
+			this.task.isRecurring = false;
+			this.task.recurringPattern = null;
+			this.task.recurringStarting = null;
+			this.task.recurringEnding = null;
+			this.task.recurringWDay = null;
+			this.task.recurringDay = null;
+			this.task.recurringMonth = null;
+		} else {
+			const interval = parseInt(this.intervalInput.value) || 1;
+			this.task.isRecurring = true;
+			this.task.recurringPattern = `${interval}${type}`;
+			this.task.recurringStarting = this.startingInput.value.trim() || null;
+			this.task.recurringEnding = this.endingInput.value.trim() || null;
+
+			// Clear all constraint fields first
+			this.task.recurringWDay = null;
+			this.task.recurringDay = null;
+			this.task.recurringMonth = null;
+
+			// Set type-specific constraints
+			if (type === 'week') {
+				const selectedDays = Object.keys(this.wdayCheckboxes)
+					.map(k => parseInt(k))
+					.filter(k => this.wdayCheckboxes[k].checked);
+				this.task.recurringWDay = selectedDays.length > 0 ? selectedDays : null;
+			} else if (type === 'month') {
+				const days = this.dayInput.value.split(',')
+					.map(d => parseInt(d.trim()))
+					.filter(d => !isNaN(d) && d >= 1 && d <= 31);
+				this.task.recurringDay = days.length > 0 ? days : null;
+			} else if (type === 'year') {
+				const months = this.monthInput.value.split(',')
+					.map(m => m.trim())
+					.filter(m => /^\d{2}-\d{2}$/.test(m));
+				this.task.recurringMonth = months.length > 0 ? months : null;
+			}
+		}
+
+		this.onSubmit(this.task);
+		this.close();
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
+// Modal for creating new tasks
+class NewTaskModal extends Modal {
+	view: TaskManagerView;
+	onSubmit: (taskData: {
+		name: string;
+		dueDate: string | null;
+		eta: string | null;
+		project: string | null;
+		section: string | null;
+	}) => void;
+
+	nameInput: HTMLInputElement;
+	dueDateInput: HTMLInputElement;
+	etaInput: HTMLInputElement;
+	projectInput: HTMLInputElement;
+
+	constructor(app: App, view: TaskManagerView, onSubmit: (taskData: any) => void) {
+		super(app);
+		this.view = view;
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: 'Create New Task' });
+
+		// Task name
+		const nameContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		nameContainer.createEl('label', { text: 'Task Name:' });
+		this.nameInput = nameContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'Enter task name...'
+		});
+		this.nameInput.focus();
+
+		// Due date
+		const dueDateContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		dueDateContainer.createEl('label', { text: 'Due Date (YYYY-MM-DD):' });
+		this.dueDateInput = dueDateContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'YYYY-MM-DD (optional)'
+		});
+
+		// Pre-fill based on current view
+		if (this.view.currentView === 'today' || this.view.currentView === 'custom-timeline') {
+			const today = new Date();
+			this.dueDateInput.value = this.view.formatDate(today);
+		}
+
+		// ETA
+		const etaContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		etaContainer.createEl('label', { text: 'Estimated Time (H:MM):' });
+		this.etaInput = etaContainer.createEl('input', {
+			type: 'text',
+			placeholder: '1:00'
+		});
+		this.etaInput.value = '1:00';
+
+		// Project/Section
+		const projectContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		projectContainer.createEl('label', { text: 'Project/Section:' });
+		this.projectInput = projectContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'project/section (optional)'
+		});
+
+		// Pre-fill project if in project view
+		if (this.view.selectedProject) {
+			let projectPath = this.view.selectedProject;
+			if (this.view.selectedSection) {
+				projectPath += '/' + this.view.selectedSection;
+			}
+			this.projectInput.value = projectPath;
+		}
+
+		// Buttons
+		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+
+		const submitBtn = buttonContainer.createEl('button', { text: 'Create Task', cls: 'mod-cta' });
+		submitBtn.addEventListener('click', () => {
+			this.submitTask();
+		});
+
+		const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+		cancelBtn.addEventListener('click', () => {
+			this.close();
+		});
+
+		// Enter key to submit
+		this.nameInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				this.submitTask();
+			}
+		});
+	}
+
+	submitTask() {
+		const name = this.nameInput.value.trim();
+		if (!name) {
+			new Notice('Task name is required');
+			return;
+		}
+
+		const dueDate = this.dueDateInput.value.trim() || null;
+		const eta = this.etaInput.value.trim() || null;
+		const projectPath = this.projectInput.value.trim();
+
+		let project: string | null = null;
+		let section: string | null = null;
+
+		if (projectPath) {
+			const parts = projectPath.split('/');
+			project = parts[0] || null;
+			section = parts[1] || null;
+		}
+
+		this.onSubmit({ name, dueDate, eta, project, section });
+		this.close();
 	}
 
 	onClose() {

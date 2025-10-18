@@ -219,7 +219,8 @@
 
 /* Add Buttons */
 .task-add-due,
-.task-add-eta {
+.task-add-eta,
+.task-add-recurring {
 	color: var(--text-muted);
 	cursor: pointer;
 	padding: 4px 8px;
@@ -231,10 +232,38 @@
 }
 
 .task-add-due:hover,
-.task-add-eta:hover {
+.task-add-eta:hover,
+.task-add-recurring:hover {
 	background-color: var(--background-modifier-hover);
 	color: var(--interactive-accent);
 	border-color: var(--interactive-accent);
+}
+
+/* Recurring Task Indicator */
+.task-recurring {
+	color: var(--text-accent);
+	cursor: pointer;
+	padding: 4px 8px;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	font-size: 12px;
+	transition: all 0.2s;
+	border: 1px solid var(--interactive-accent);
+}
+
+.task-recurring:hover {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* Overdue Section Header */
+.overdue-header {
+	color: var(--text-error) !important;
+	font-weight: 700;
+	background-color: rgba(255, 0, 0, 0.1);
+	padding: 12px;
+	border-left: 4px solid var(--text-error);
+	margin-bottom: 8px;
 }
 
 /* Empty State */
@@ -397,6 +426,54 @@
 
 .modal-button-container button.mod-cta:hover {
 	opacity: 0.9;
+}
+
+/* Recurring Task Modal */
+.checkbox-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.checkbox-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.checkbox-item input[type="checkbox"] {
+	cursor: pointer;
+	width: 16px;
+	height: 16px;
+}
+
+.checkbox-item label {
+	cursor: pointer;
+	font-size: 13px;
+	user-select: none;
+}
+
+.recurring-wday,
+.recurring-day,
+.recurring-month {
+	margin-top: 12px;
+}
+
+.modal-input-container select {
+	width: 100%;
+	padding: 8px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 14px;
+	cursor: pointer;
+}
+
+.modal-input-container select:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
 }
 
 /* Toggle Icon */

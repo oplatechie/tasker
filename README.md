@@ -74,6 +74,28 @@ Navigate through your projects and sections:
 - Click on a section to see tasks in that specific section
 - Each view shows cumulative ETA for filtered tasks
 
+### Creating Tasks
+
+You can create tasks in two ways:
+
+1. **+ New Task Button**: Click the "+ New Task" button in the navigation (desktop) or the "New Task" card (mobile)
+2. **Command Palette**: Use `Ctrl/Cmd + P` → "Create New Task"
+
+**Context-Aware Task Creation**: Tasks are created based on your current view:
+
+| Current View | Task Attributes |
+|--------------|-----------------|
+| **Today** | Due date set to today |
+| **Specific Project** (e.g., work/dev) | Project tag automatically added |
+| **Project + Section** | Full project/section tag added |
+| **Timeline Views** | Due date set to today |
+
+**Example Workflow**:
+1. Navigate to a project like "work" → "development"
+2. Click "+ New Task"
+3. Task is created with `#tlog/work/development` tag
+4. Edit the task name and other details inline
+
 ### Editing Tasks
 
 Tasks are fully editable within the Task Manager:
@@ -93,11 +115,16 @@ Tasks are fully editable within the Task Manager:
 - Press Enter or click outside to save
 - If a task has no ETA, click "+ ETA" to add one (defaults to 1:00)
 
+#### Project/Section
+- Click on the project/section tag to edit it
+- Format: `project/section` (e.g., `work/development`)
+- Press Enter or click outside to save
+
 #### Completing Tasks
 - Click the checkbox next to any task to mark it complete
 - The task will be marked with `[x]` in the markdown file
-- Completed tasks disappear from the Task Manager view
-- They can still be viewed and edited in the markdown file
+- Completed tasks can be viewed in the "Done" section
+- Click the checkbox again to uncheck and reopen the task
 
 ## Settings
 

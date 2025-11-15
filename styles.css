@@ -135,6 +135,83 @@
 	min-width: 0;
 }
 
+/* Task Menu (Three-dot menu) */
+.task-menu-container {
+	position: relative;
+	margin-left: 8px;
+	flex-shrink: 0;
+}
+
+.task-menu-button {
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 18px;
+	font-weight: bold;
+	color: var(--text-muted);
+	transition: all 0.2s;
+	opacity: 0;
+}
+
+.task-item:hover .task-menu-button {
+	opacity: 1;
+}
+
+.task-menu-button:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.task-menu-dropdown {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	margin-top: 4px;
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	z-index: 1000;
+	min-width: 140px;
+	overflow: hidden;
+}
+
+.task-menu-option {
+	padding: 10px 14px;
+	cursor: pointer;
+	font-size: 14px;
+	color: var(--text-normal);
+	transition: background-color 0.2s;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.task-menu-option:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.task-menu-option:active {
+	background-color: var(--background-modifier-active-hover);
+}
+
+/* Long-press feedback for mobile */
+@media (max-width: 768px) {
+	.task-menu-button {
+		/* Hide three-dot menu on mobile */
+		display: none;
+	}
+
+	.task-item.long-press-active {
+		background-color: var(--background-modifier-hover);
+		transform: scale(0.98);
+	}
+}
+
 .task-name {
 	font-size: 15px;
 	color: var(--text-normal);
@@ -145,16 +222,32 @@
 	padding: 2px 4px;
 	border-radius: 3px;
 	transition: background-color 0.2s;
+	cursor: default;
 }
 
-.task-name:focus {
+.task-name[contenteditable="true"] {
 	background-color: var(--background-modifier-hover);
 	outline: 1px solid var(--interactive-accent);
+	cursor: text;
 }
 
 .task-name:hover {
+	background-color: var(--background-modifier-hover-alt);
+}
+
+/* Internal Links in Task Names */
+.task-name .internal-link {
+	color: var(--link-color);
+	text-decoration: none;
+	cursor: pointer;
+	border-bottom: 1px solid var(--link-color);
+	transition: all 0.2s;
+}
+
+.task-name .internal-link:hover {
+	color: var(--link-color-hover);
+	border-bottom-color: var(--link-color-hover);
 	background-color: var(--background-modifier-hover);
-	cursor: text;
 }
 
 .task-metadata {
@@ -217,9 +310,67 @@
 	cursor: text;
 }
 
+/* Priority Label Styles */
+.task-priority {
+	display: inline-flex !important;
+	align-items: center;
+	padding: 4px 10px !important;
+	border-radius: 12px !important;
+	font-size: 11px !important;
+	font-weight: 600 !important;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	cursor: pointer;
+	transition: all 0.2s;
+	border: none !important;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.task-priority:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.task-priority select {
+	position: absolute;
+	margin-top: 30px;
+	margin-left: -10px;
+}
+
+/* Priority Label Settings Styles */
+.priority-labels-container {
+	margin-bottom: 20px;
+}
+
+.priority-label-setting {
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 12px 0;
+}
+
+.priority-label-setting:last-child {
+	border-bottom: none;
+}
+
+.color-preview {
+	display: inline-block;
+	width: 30px;
+	height: 30px;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	cursor: pointer;
+	margin-left: 8px;
+	vertical-align: middle;
+	transition: transform 0.2s;
+}
+
+.color-preview:hover {
+	transform: scale(1.1);
+}
+
 /* Add Buttons */
 .task-add-due,
 .task-add-eta,
+.task-add-priority,
 .task-add-recurring {
 	color: var(--text-muted);
 	cursor: pointer;
@@ -233,6 +384,7 @@
 
 .task-add-due:hover,
 .task-add-eta:hover,
+.task-add-priority:hover,
 .task-add-recurring:hover {
 	background-color: var(--background-modifier-hover);
 	color: var(--interactive-accent);
@@ -493,6 +645,59 @@
 	color: var(--interactive-accent);
 }
 
+/* Timeline View Actions */
+.timeline-view-container {
+	position: relative;
+}
+
+.timeline-view-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.timeline-view-name {
+	flex: 1;
+}
+
+.timeline-actions {
+	display: flex;
+	gap: 4px;
+	opacity: 0;
+	transition: opacity 0.2s;
+	margin-left: 8px;
+}
+
+.timeline-view-item:hover .timeline-actions {
+	opacity: 1;
+}
+
+.timeline-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 3px;
+	cursor: pointer;
+	font-size: 12px;
+	transition: all 0.2s;
+	user-select: none;
+}
+
+.timeline-action-btn:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.timeline-action-btn.edit-btn:hover {
+	color: var(--interactive-accent);
+}
+
+.timeline-action-btn.delete-btn:hover {
+	color: var(--text-error);
+	background-color: var(--background-modifier-error);
+}
+
 /* Mobile View Styles */
 .task-manager-mobile {
 	padding: 0;
@@ -606,6 +811,28 @@
 	font-weight: 600;
 	color: var(--text-normal);
 	flex: 1;
+}
+
+.mobile-add-task-btn {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	font-size: 24px;
+	font-weight: bold;
+	transition: transform 0.2s, opacity 0.2s;
+	user-select: none;
+	flex-shrink: 0;
+}
+
+.mobile-add-task-btn:active {
+	transform: scale(0.95);
+	opacity: 0.8;
 }
 
 .mobile-content {

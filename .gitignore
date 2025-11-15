@@ -24,3 +24,6 @@ npm-debug.log*
 # Testing
 coverage/
 .nyc_output/
+
+# Internal documentation (not for public repo)
+.internal/

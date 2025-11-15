@@ -10,15 +10,34 @@ import {
 	Modal
 } from 'obsidian';
 
+// Priority Label Interface
+interface PriorityLabel {
+	id: string;
+	name: string;
+	color: string; // Hex color value
+	order: number; // For sorting priority (lower number = higher priority)
+}
+
+// Sorting options
+type SortOption = 'dueDate' | 'duration' | 'alphabetical' | 'project' | 'priority';
+
 // Plugin Settings Interface
 interface TaskManagerSettings {
 	taskFile: string;
 	taskIdentifier: string;
+	sortBy: SortOption;
+	priorityLabels: PriorityLabel[];
 }
 
 const DEFAULT_SETTINGS: TaskManagerSettings = {
 	taskFile: 'tasks.md',
-	taskIdentifier: '#tlog'
+	taskIdentifier: '#tlog',
+	sortBy: 'dueDate',
+	priorityLabels: [
+		{ id: 'high', name: 'High', color: '#ff4444', order: 1 },
+		{ id: 'medium', name: 'Medium', color: '#ffaa00', order: 2 },
+		{ id: 'low', name: 'Low', color: '#4444ff', order: 3 }
+	]
 }
 
 // Task Interface
@@ -40,14 +59,16 @@ interface Task {
 	recurringDay: number[] | null; // For monthly: [1,15,30]
 	recurringMonth: string[] | null; // For yearly: ["12-01", "02-27"]
 	isGeneratedRecurring?: boolean; // True if this is a calculated future task
+	priority: string | null; // Priority label ID
 }
 
 // Custom Timeline View Interface
 interface CustomTimelineView {
 	id: string;
 	name: string;
-	type: 'date-range';
-	days: number; // Number of days from today
+	type: 'date-range' | 'this-week' | 'next-week' | 'this-month' | 'next-month' | 'all-tasks';
+	days?: number; // Number of days from today (for date-range type)
+	isPreset?: boolean; // If true, cannot be deleted
 }
 
 // View Type Constant
@@ -155,12 +176,16 @@ class TaskManagerView extends ItemView {
 	collapsedProjects: Set<string> = new Set();
 	isMobile: boolean = false;
 	customTimelineViews: CustomTimelineView[] = [
-		{ id: 'next-7-days', name: 'Next 7 Days', type: 'date-range', days: 7 },
-		{ id: 'next-week', name: 'Next Week', type: 'date-range', days: 7 },
-		{ id: 'this-month', name: 'This Month', type: 'date-range', days: 30 }
+		{ id: 'this-week', name: 'This Week', type: 'this-week', isPreset: true },
+		{ id: 'next-week', name: 'Next Week', type: 'next-week', isPreset: true },
+		{ id: 'this-month', name: 'This Month', type: 'this-month', isPreset: true },
+		{ id: 'next-month', name: 'Next Month', type: 'next-month', isPreset: true },
+		{ id: 'all-tasks', name: 'All Tasks', type: 'all-tasks', isPreset: true }
 	];
 	selectedTimelineView: CustomTimelineView | null = null;
 	lastRecurringCheck: number = 0;
+	sortBy: SortOption = 'dueDate';
+	globalClickHandler: ((e: MouseEvent) => void) | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TaskManagerPlugin) {
 		super(leaf);
@@ -183,6 +208,7 @@ class TaskManagerView extends ItemView {
 	async onOpen() {
 		await this.loadTasks();
 		this.setupFileWatcher();
+		this.setupGlobalClickHandler();
 		this.renderView();
 	}
 
@@ -190,6 +216,12 @@ class TaskManagerView extends ItemView {
 		// Cleanup file watcher
 		if (this.fileWatcherRef) {
 			this.app.vault.offref(this.fileWatcherRef);
+		}
+
+		// Cleanup global click handler
+		if (this.globalClickHandler) {
+			document.removeEventListener('click', this.globalClickHandler);
+			this.globalClickHandler = null;
 		}
 	}
 
@@ -207,6 +239,23 @@ class TaskManagerView extends ItemView {
 		});
 
 		this.registerEvent(this.fileWatcherRef);
+	}
+
+	setupGlobalClickHandler() {
+		// Single global click handler to close all task menus
+		// This prevents memory leaks from adding one listener per task
+		this.globalClickHandler = (e: MouseEvent) => {
+			const target = e.target as HTMLElement;
+			// Check if click is outside any task menu
+			if (!target.closest('.task-menu-container')) {
+				// Close all open menus
+				document.querySelectorAll('.task-menu-dropdown').forEach(menu => {
+					(menu as HTMLElement).style.display = 'none';
+				});
+			}
+		};
+
+		document.addEventListener('click', this.globalClickHandler);
 	}
 
 	async loadTasks() {
@@ -303,6 +352,10 @@ class TaskManagerView extends ItemView {
 			recurringMonth = monthMatch[1].split(',').map(m => m.trim());
 		}
 
+		// Extract priority label
+		const priorityMatch = line.match(/priority::(\S+)/);
+		const priority = priorityMatch ? priorityMatch[1] : null;
+
 		// Extract tags and determine project/section
 		const tagRegex = /#[\w\/]+/g;
 		const tags = line.match(tagRegex) || [];
@@ -328,6 +381,7 @@ class TaskManagerView extends ItemView {
 		taskName = taskName
 			.replace(/due::\S+/g, '')
 			.replace(/eta::\S+/g, '')
+			.replace(/priority::\S+/g, '')
 			.replace(/recurring::\S+/g, '')
 			.replace(/starting::\S+/g, '')
 			.replace(/ending::\S+/g, '')
@@ -353,7 +407,8 @@ class TaskManagerView extends ItemView {
 			recurringEnding,
 			recurringWDay,
 			recurringDay,
-			recurringMonth
+			recurringMonth,
+			priority
 		};
 	}
 
@@ -389,7 +444,7 @@ class TaskManagerView extends ItemView {
 		container.addClass('task-manager-mobile');
 
 		// Check if we should show list or navigation
-		if (this.selectedProject !== null || this.currentView === 'today' || this.currentView === 'done') {
+		if (this.selectedProject !== null || this.currentView === 'today' || this.currentView === 'done' || this.currentView === 'custom-timeline') {
 			// Show task list with back button
 			this.renderMobileTaskList(container);
 		} else {
@@ -524,6 +579,12 @@ class TaskManagerView extends ItemView {
 
 		header.createDiv({ cls: 'mobile-title', text: title });
 
+		// Add New Task button in header
+		const addTaskBtn = header.createDiv({ cls: 'mobile-add-task-btn', text: '+' });
+		addTaskBtn.addEventListener('click', () => {
+			this.showNewTaskModal();
+		});
+
 		// Content area
 		const contentArea = container.createDiv({ cls: 'mobile-content' });
 		this.renderContent(contentArea);
@@ -563,18 +624,43 @@ class TaskManagerView extends ItemView {
 		});
 
 		// Render existing timeline views
-		this.customTimelineViews.forEach(view => {
-			const viewItem = navEl.createDiv({
-				cls: this.selectedTimelineView?.id === view.id ? 'nav-item active' : 'nav-item'
+		this.customTimelineViews.forEach((view, index) => {
+			const viewContainer = navEl.createDiv({ cls: 'timeline-view-container' });
+			const viewItem = viewContainer.createDiv({
+				cls: this.selectedTimelineView?.id === view.id ? 'nav-item timeline-view-item active' : 'nav-item timeline-view-item'
 			});
-			viewItem.setText(`📆 ${view.name}`);
-			viewItem.addEventListener('click', () => {
-				this.currentView = 'custom-timeline';
-				this.selectedProject = null;
-				this.selectedSection = null;
-				this.selectedTimelineView = view;
-				this.renderView();
+
+			viewItem.createSpan({ text: `📆 ${view.name}`, cls: 'timeline-view-name' });
+
+			viewItem.addEventListener('click', (e) => {
+				// Don't trigger view change if clicking on action buttons
+				if (!(e.target as HTMLElement).classList.contains('timeline-action-btn')) {
+					this.currentView = 'custom-timeline';
+					this.selectedProject = null;
+					this.selectedSection = null;
+					this.selectedTimelineView = view;
+					this.renderView();
+				}
 			});
+
+			// Add edit/delete buttons for custom views (not presets)
+			if (!view.isPreset) {
+				const actionsContainer = viewItem.createDiv({ cls: 'timeline-actions' });
+
+				const editBtn = actionsContainer.createSpan({ text: '✎', cls: 'timeline-action-btn edit-btn' });
+				editBtn.setAttribute('title', 'Edit');
+				editBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					this.showEditTimelineDialog(view, index);
+				});
+
+				const deleteBtn = actionsContainer.createSpan({ text: '✕', cls: 'timeline-action-btn delete-btn' });
+				deleteBtn.setAttribute('title', 'Delete');
+				deleteBtn.addEventListener('click', (e) => {
+					e.stopPropagation();
+					this.deleteTimelineView(index);
+				});
+			}
 		});
 
 		// Done button
@@ -677,9 +763,43 @@ class TaskManagerView extends ItemView {
 		}
 	}
 
+	// Render sorting dropdown
+	renderSortDropdown(container: HTMLElement) {
+		const sortContainer = container.createDiv({ cls: 'sort-container' });
+		sortContainer.createSpan({ text: 'Sort by: ', cls: 'sort-label' });
+
+		const sortSelect = sortContainer.createEl('select', { cls: 'sort-select' });
+
+		const options = [
+			{ value: 'dueDate', text: 'Due Date' },
+			{ value: 'duration', text: 'Duration' },
+			{ value: 'alphabetical', text: 'Alphabetical' },
+			{ value: 'project', text: 'Project' },
+			{ value: 'priority', text: 'Priority' }
+		];
+
+		options.forEach(opt => {
+			const option = sortSelect.createEl('option', {
+				value: opt.value,
+				text: opt.text
+			});
+			if (this.sortBy === opt.value) {
+				option.selected = true;
+			}
+		});
+
+		sortSelect.addEventListener('change', () => {
+			this.sortBy = sortSelect.value as SortOption;
+			this.renderView();
+		});
+	}
+
 	renderTodayView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
 		header.createEl('h2', { text: 'Today' });
+
+		// Add sorting dropdown
+		this.renderSortDropdown(header);
 
 		// Filter tasks due today (exclude completed)
 		const today = new Date();
@@ -703,14 +823,17 @@ class TaskManagerView extends ItemView {
 			return task.dueDate === todayStr || this.isOverdue(task.dueDate);
 		});
 
+		// Sort tasks
+		const sortedTasks = this.sortTasks(todayTasks);
+
 		// Calculate total ETA
-		const totalEta = this.calculateTotalEta(todayTasks);
+		const totalEta = this.calculateTotalEta(sortedTasks);
 		const etaDisplay = contentEl.createDiv({ cls: 'eta-summary' });
 		etaDisplay.createSpan({ text: `Total Time: ${totalEta}` });
 
 		// Render tasks
 		const taskList = contentEl.createDiv({ cls: 'task-list' });
-		todayTasks.forEach(task => {
+		sortedTasks.forEach(task => {
 			this.renderTask(taskList, task);
 		});
 
@@ -722,6 +845,9 @@ class TaskManagerView extends ItemView {
 	renderDoneView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
 		header.createEl('h2', { text: 'Done' });
+
+		// Add sorting dropdown
+		this.renderSortDropdown(header);
 
 		// Filter completed tasks (exclude recurring templates)
 		const doneTasks = this.tasks.filter(task => {
@@ -740,14 +866,17 @@ class TaskManagerView extends ItemView {
 			return true;
 		});
 
+		// Sort tasks
+		const sortedTasks = this.sortTasks(doneTasks);
+
 		// Calculate total ETA
-		const totalEta = this.calculateTotalEta(doneTasks);
+		const totalEta = this.calculateTotalEta(sortedTasks);
 		const etaDisplay = contentEl.createDiv({ cls: 'eta-summary' });
 		etaDisplay.createSpan({ text: `Total Time: ${totalEta}` });
 
 		// Render tasks
 		const taskList = contentEl.createDiv({ cls: 'task-list' });
-		doneTasks.forEach(task => {
+		sortedTasks.forEach(task => {
 			this.renderTask(taskList, task);
 		});
 
@@ -762,6 +891,9 @@ class TaskManagerView extends ItemView {
 			? `${this.selectedProject} / ${this.selectedSection}`
 			: this.selectedProject || 'Projects';
 		header.createEl('h2', { text: title });
+
+		// Add sorting dropdown
+		this.renderSortDropdown(header);
 
 		// Filter tasks by project/section (exclude completed and recurring templates with occurrences)
 		let filteredTasks = this.tasks.filter(task => {
@@ -786,14 +918,17 @@ class TaskManagerView extends ItemView {
 			filteredTasks = filteredTasks.filter(task => task.section === this.selectedSection);
 		}
 
+		// Sort tasks
+		const sortedTasks = this.sortTasks(filteredTasks);
+
 		// Calculate total ETA
-		const totalEta = this.calculateTotalEta(filteredTasks);
+		const totalEta = this.calculateTotalEta(sortedTasks);
 		const etaDisplay = contentEl.createDiv({ cls: 'eta-summary' });
 		etaDisplay.createSpan({ text: `Total Time: ${totalEta}` });
 
 		// Render tasks
 		const taskList = contentEl.createDiv({ cls: 'task-list' });
-		filteredTasks.forEach(task => {
+		sortedTasks.forEach(task => {
 			this.renderTask(taskList, task);
 		});
 
@@ -816,54 +951,216 @@ class TaskManagerView extends ItemView {
 		// Task content
 		const taskContent = taskEl.createDiv({ cls: 'task-content' });
 
-		// Task name (editable)
-		const taskNameEl = taskContent.createDiv({ cls: 'task-name' });
-		taskNameEl.contentEditable = 'true';
-		taskNameEl.setText(task.taskName);
-		taskNameEl.addEventListener('blur', async () => {
-			const newName = taskNameEl.getText().trim();
-			if (newName !== task.taskName) {
-				task.taskName = newName;
-				await this.updateTask(task);
+		// Three-dot menu for desktop
+		const menuContainer = taskEl.createDiv({ cls: 'task-menu-container' });
+		const menuButton = menuContainer.createDiv({ cls: 'task-menu-button', text: '⋯' });
+		const menuDropdown = menuContainer.createDiv({ cls: 'task-menu-dropdown' });
+		menuDropdown.style.display = 'none';
+
+		const deleteOption = menuDropdown.createDiv({ cls: 'task-menu-option', text: '🗑️ Delete' });
+		deleteOption.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			menuDropdown.style.display = 'none';
+			await this.deleteTask(task);
+		});
+
+		// Toggle menu on button click
+		menuButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			const isVisible = menuDropdown.style.display === 'block';
+			// Hide all other menus first
+			document.querySelectorAll('.task-menu-dropdown').forEach(menu => {
+				(menu as HTMLElement).style.display = 'none';
+			});
+			menuDropdown.style.display = isVisible ? 'none' : 'block';
+		});
+
+		// Note: Menu closing on outside click is handled by global click handler in setupGlobalClickHandler()
+		// This prevents memory leaks from adding one document listener per task
+
+		// Long-press for mobile
+		let longPressTimer: NodeJS.Timeout | null = null;
+		let touchStarted = false;
+
+		taskEl.addEventListener('touchstart', (e) => {
+			touchStarted = true;
+			longPressTimer = setTimeout(() => {
+				if (touchStarted) {
+					// Trigger long-press action
+					e.preventDefault();
+					const confirmed = confirm(`Delete task "${task.taskName}"?`);
+					if (confirmed) {
+						this.deleteTask(task);
+					}
+				}
+			}, 800); // 800ms for long press
+		});
+
+		taskEl.addEventListener('touchend', () => {
+			touchStarted = false;
+			if (longPressTimer) {
+				clearTimeout(longPressTimer);
+				longPressTimer = null;
 			}
 		});
+
+		taskEl.addEventListener('touchmove', () => {
+			touchStarted = false;
+			if (longPressTimer) {
+				clearTimeout(longPressTimer);
+				longPressTimer = null;
+			}
+		});
+
+		// Task name (editable with internal link support)
+		const taskNameEl = taskContent.createDiv({ cls: 'task-name' });
+
+		let isEditing = false;
+
+		// Convert [[note]] links to clickable links
+		const renderTaskName = (name: string): string => {
+			// Replace [[note]] with clickable internal links
+			return name.replace(/\[\[([^\]]+)\]\]/g, (_match, noteName) => {
+				return `<a href="#" class="internal-link" data-note="${noteName}">${noteName}</a>`;
+			});
+		};
+
+		// Render the task name with links
+		const updateTaskNameDisplay = () => {
+			if (!isEditing) {
+				taskNameEl.innerHTML = renderTaskName(task.taskName);
+				taskNameEl.contentEditable = 'false';
+			}
+		};
+
+		updateTaskNameDisplay();
+
+		// Handle internal link clicks and double-click to edit
+		taskNameEl.addEventListener('click', (e) => {
+			const target = e.target as HTMLElement;
+			if (target.classList.contains('internal-link')) {
+				e.preventDefault();
+				e.stopPropagation();
+				const noteName = target.getAttribute('data-note');
+				if (noteName) {
+					// Open the note in Obsidian
+					const file = this.app.vault.getAbstractFileByPath(noteName + '.md');
+					if (file) {
+						this.app.workspace.getLeaf().openFile(file as TFile);
+					} else {
+						// Try to find the file by name
+						const files = this.app.vault.getMarkdownFiles();
+						const foundFile = files.find(f => f.basename === noteName);
+						if (foundFile) {
+							this.app.workspace.getLeaf().openFile(foundFile);
+						} else {
+							new Notice(`Note "${noteName}" not found`);
+						}
+					}
+				}
+			}
+		});
+
+		// Double-click to edit
+		taskNameEl.addEventListener('dblclick', (e) => {
+			const target = e.target as HTMLElement;
+			// Don't edit if clicking on a link
+			if (!target.classList.contains('internal-link')) {
+				isEditing = true;
+				taskNameEl.contentEditable = 'true';
+				taskNameEl.innerText = task.taskName; // Show raw text with [[brackets]]
+				taskNameEl.focus();
+				// Select all text
+				const range = document.createRange();
+				range.selectNodeContents(taskNameEl);
+				const sel = window.getSelection();
+				sel?.removeAllRanges();
+				sel?.addRange(range);
+			}
+		});
+
+		taskNameEl.addEventListener('blur', async () => {
+			if (isEditing) {
+				isEditing = false;
+				taskNameEl.contentEditable = 'false';
+
+				// Get the raw text content with [[links]]
+				let newName = taskNameEl.innerText.trim();
+
+				// Check if the content has changed
+				if (newName !== task.taskName) {
+					task.taskName = newName;
+					await this.updateTask(task);
+				}
+
+				// Re-render with formatted links
+				updateTaskNameDisplay();
+			}
+		});
+
 		taskNameEl.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
+			if (e.key === 'Enter' && isEditing) {
 				e.preventDefault();
 				taskNameEl.blur();
+			} else if (e.key === 'Escape' && isEditing) {
+				e.preventDefault();
+				isEditing = false;
+				taskNameEl.contentEditable = 'false';
+				updateTaskNameDisplay();
 			}
 		});
 
 		// Metadata
 		const metadata = taskContent.createDiv({ cls: 'task-metadata' });
 
-		// Due date (editable)
+		// Due date (editable with date picker)
 		if (task.dueDate) {
 			const dueEl = metadata.createSpan({ cls: 'task-due' });
-			dueEl.innerHTML = `📅 <span contenteditable="true" class="editable-date">${task.dueDate}</span>`;
+			dueEl.innerHTML = `📅 <span class="editable-date">${task.dueDate}</span>`;
 			const dateSpan = dueEl.querySelector('.editable-date') as HTMLElement;
 
 			if (this.isOverdue(task.dueDate)) {
 				dueEl.addClass('overdue');
 			}
 
-			dateSpan?.addEventListener('blur', async () => {
-				const newDate = dateSpan.getText().trim();
-				if (newDate !== task.dueDate && this.isValidDate(newDate)) {
-					task.dueDate = newDate;
-					await this.updateTask(task);
-					this.renderView();
-				} else if (!this.isValidDate(newDate)) {
-					new Notice('Invalid date format. Use YYYY-MM-DD');
-					dateSpan.setText(task.dueDate || '');
-				}
-			});
+			// When clicked, replace with date input
+			dateSpan?.addEventListener('click', () => {
+				const dateInput = document.createElement('input');
+				dateInput.type = 'date';
+				dateInput.value = task.dueDate || '';
+				dateInput.className = 'editable-date-input';
 
-			dateSpan?.addEventListener('keydown', (e) => {
-				if (e.key === 'Enter') {
-					e.preventDefault();
-					dateSpan.blur();
-				}
+				// Replace span with input
+				dateSpan.replaceWith(dateInput);
+				dateInput.focus();
+
+				// Handle save
+				const saveDate = async () => {
+					const newDate = dateInput.value;
+					if (newDate && newDate !== task.dueDate) {
+						task.dueDate = newDate;
+						await this.updateTask(task);
+						this.renderView();
+					} else if (!newDate) {
+						// If cleared, just restore original
+						this.renderView();
+					} else {
+						// No change, just restore
+						this.renderView();
+					}
+				};
+
+				dateInput.addEventListener('blur', saveDate);
+				dateInput.addEventListener('change', saveDate);
+				dateInput.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						dateInput.blur();
+					} else if (e.key === 'Escape') {
+						e.preventDefault();
+						this.renderView(); // Cancel editing
+					}
+				});
 			});
 		} else {
 			// Add due date button
@@ -873,6 +1170,66 @@ class TaskManagerView extends ItemView {
 				task.dueDate = today;
 				await this.updateTask(task);
 				this.renderView();
+			});
+		}
+
+		// Priority Label
+		if (task.priority) {
+			const priorityLabel = this.plugin.settings.priorityLabels.find(l => l.id === task.priority);
+			if (priorityLabel) {
+				const priorityEl = metadata.createSpan({ cls: 'task-priority' });
+				priorityEl.style.backgroundColor = priorityLabel.color;
+				priorityEl.style.color = '#fff';
+				priorityEl.style.padding = '2px 8px';
+				priorityEl.style.borderRadius = '4px';
+				priorityEl.style.fontSize = '0.85em';
+				priorityEl.style.fontWeight = '500';
+				priorityEl.setText(priorityLabel.name);
+
+				// Click to change priority
+				priorityEl.style.cursor = 'pointer';
+				priorityEl.addEventListener('click', async () => {
+					// Create a dropdown to change priority
+					const dropdown = document.createElement('select');
+					dropdown.style.position = 'absolute';
+					dropdown.style.zIndex = '1000';
+
+					// Add "No priority" option
+					const noneOption = dropdown.createEl('option', { value: '' });
+					noneOption.setText('No priority');
+
+					// Add all priority options
+					this.plugin.settings.priorityLabels.forEach(label => {
+						const option = dropdown.createEl('option', { value: label.id });
+						option.setText(label.name);
+						if (label.id === task.priority) {
+							option.selected = true;
+						}
+					});
+
+					dropdown.addEventListener('change', async () => {
+						task.priority = dropdown.value || null;
+						await this.updateTask(task);
+						this.renderView();
+					});
+
+					priorityEl.appendChild(dropdown);
+					dropdown.focus();
+					dropdown.addEventListener('blur', () => {
+						dropdown.remove();
+					});
+				});
+			}
+		} else {
+			// Add priority button
+			const addPriorityBtn = metadata.createSpan({ cls: 'task-add-priority', text: '+ Priority' });
+			addPriorityBtn.addEventListener('click', async () => {
+				// Set to first priority label if available
+				if (this.plugin.settings.priorityLabels.length > 0) {
+					task.priority = this.plugin.settings.priorityLabels[0].id;
+					await this.updateTask(task);
+					this.renderView();
+				}
 			});
 		}
 
@@ -943,13 +1300,27 @@ class TaskManagerView extends ItemView {
 		});
 
 		// Recurring indicator/editor
-		if (task.isRecurring) {
+		// Check if this task is a recurring template OR an occurrence of a recurring task
+		const templateTask = task.isRecurring && !task.isGeneratedRecurring
+			? task  // This IS the template
+			: this.tasks.find(t =>  // Find the template for this occurrence
+				t.isRecurring &&
+				!t.isGeneratedRecurring &&
+				t.taskName === task.taskName &&
+				t.project === task.project &&
+				t.section === task.section
+			);
+
+		if (templateTask) {
+			// This is either a template or an occurrence - show recurring icon
 			const recurringEl = metadata.createSpan({ cls: 'task-recurring' });
-			recurringEl.setText(`🔄 ${task.recurringPattern}`);
+			recurringEl.setText(`🔄 ${templateTask.recurringPattern}`);
 			recurringEl.addEventListener('click', () => {
-				this.showRecurringEditor(task);
+				// Always edit the template, even if clicked on an occurrence
+				this.showRecurringEditor(templateTask);
 			});
 		} else {
+			// This is a regular non-recurring task - show "Add Recurring" button
 			const addRecurringBtn = metadata.createSpan({ cls: 'task-add-recurring', text: '+ Recurring' });
 			addRecurringBtn.addEventListener('click', () => {
 				this.showRecurringEditor(task);
@@ -982,10 +1353,11 @@ class TaskManagerView extends ItemView {
 					t.section === task.section
 				);
 
-				if (templateTask) {
+				if (templateTask && task.dueDate) {
 					// Materialize the current occurrence as done and add next occurrence
-					const currentTaskLine = this.buildRecurringTaskInstance(task, task.dueDate!).replace('- [ ]', '- [x]');
-					const nextOccurrence = this.calculateNextOccurrences(templateTask, 1)[0];
+					const currentTaskLine = this.buildRecurringTaskInstance(task, task.dueDate).replace('- [ ]', '- [x]');
+					// Calculate next occurrence AFTER the current due date
+					const nextOccurrence = this.calculateNextOccurrenceAfterDate(templateTask, task.dueDate);
 
 					if (nextOccurrence) {
 						const nextTaskLine = this.buildRecurringTaskInstance(templateTask, nextOccurrence);
@@ -1024,9 +1396,9 @@ class TaskManagerView extends ItemView {
 					t.section === task.section
 				);
 
-				if (templateTask) {
-					// This is a recurring occurrence - generate next one
-					const nextOccurrence = this.calculateNextOccurrences(templateTask, 1)[0];
+				if (templateTask && task.dueDate) {
+					// This is a recurring occurrence - generate next one AFTER current due date
+					const nextOccurrence = this.calculateNextOccurrenceAfterDate(templateTask, task.dueDate);
 
 					if (nextOccurrence) {
 						const nextTaskLine = this.buildRecurringTaskInstance(templateTask, nextOccurrence);
@@ -1098,6 +1470,10 @@ class TaskManagerView extends ItemView {
 				newLine += ` eta::${task.eta}`;
 			}
 
+			if (task.priority) {
+				newLine += ` priority::${task.priority}`;
+			}
+
 			// ALWAYS add the tag (even if just #tlog)
 			newLine += ` ${projectTag}`;
 
@@ -1131,6 +1507,33 @@ class TaskManagerView extends ItemView {
 			lines[task.lineNumber] = newLine;
 			await this.app.vault.modify(file, lines.join('\n'));
 			await this.loadTasks();
+		}
+	}
+
+	async deleteTask(task: Task) {
+		const file = this.app.vault.getAbstractFileByPath(this.plugin.settings.taskFile);
+
+		if (!file || !(file instanceof TFile)) {
+			new Notice('Task file not found');
+			return;
+		}
+
+		// Confirm deletion
+		const confirmed = confirm(`Delete task "${task.taskName}"?`);
+		if (!confirmed) return;
+
+		const content = await this.app.vault.read(file);
+		const lines = content.split('\n');
+
+		if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
+			// Remove the line
+			lines.splice(task.lineNumber, 1);
+			await this.app.vault.modify(file, lines.join('\n'));
+			await this.loadTasks();
+			this.renderView();
+			new Notice(`Deleted task "${task.taskName}"`);
+		} else {
+			new Notice('Cannot delete virtual task');
 		}
 	}
 
@@ -1182,6 +1585,88 @@ class TaskManagerView extends ItemView {
 		today.setHours(0, 0, 0, 0);
 		const due = new Date(dueDate);
 		return due < today;
+	}
+
+	// Sorting methods
+	sortTasks(tasks: Task[]): Task[] {
+		const sorted = [...tasks]; // Create a copy to avoid mutating original
+
+		switch (this.sortBy) {
+			case 'dueDate':
+				return sorted.sort((a, b) => {
+					// No due date goes last
+					if (!a.dueDate && !b.dueDate) return 0;
+					if (!a.dueDate) return 1;
+					if (!b.dueDate) return -1;
+					// Compare dates
+					return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+				});
+
+			case 'duration':
+				return sorted.sort((a, b) => {
+					// Convert ETA to minutes for comparison
+					const getMinutes = (eta: string | null): number => {
+						if (!eta) return 0;
+						const match = eta.match(/^(\d+):(\d+)$/);
+						if (!match) return 0;
+						return parseInt(match[1]) * 60 + parseInt(match[2]);
+					};
+
+					const aMinutes = getMinutes(a.eta);
+					const bMinutes = getMinutes(b.eta);
+
+					// No ETA goes last
+					if (aMinutes === 0 && bMinutes === 0) return 0;
+					if (aMinutes === 0) return 1;
+					if (bMinutes === 0) return -1;
+					// Sort by duration (longest first)
+					return bMinutes - aMinutes;
+				});
+
+			case 'alphabetical':
+				return sorted.sort((a, b) => {
+					return a.taskName.localeCompare(b.taskName);
+				});
+
+			case 'project':
+				return sorted.sort((a, b) => {
+					// Build full project path
+					const getProjectPath = (task: Task): string => {
+						if (!task.project) return '';
+						if (task.section) return `${task.project}/${task.section}`;
+						return task.project;
+					};
+
+					const aPath = getProjectPath(a);
+					const bPath = getProjectPath(b);
+
+					// No project goes last
+					if (!aPath && !bPath) return 0;
+					if (!aPath) return 1;
+					if (!bPath) return -1;
+					// Compare project paths
+					return aPath.localeCompare(bPath);
+				});
+
+			case 'priority':
+				return sorted.sort((a, b) => {
+					// Get priority order from settings
+					const getPriorityOrder = (task: Task): number => {
+						if (!task.priority) return 9999; // No priority goes last
+						const label = this.plugin.settings.priorityLabels.find(l => l.id === task.priority);
+						return label ? label.order : 9999;
+					};
+
+					const aOrder = getPriorityOrder(a);
+					const bOrder = getPriorityOrder(b);
+
+					// Sort by priority order (lower order = higher priority = comes first)
+					return aOrder - bOrder;
+				});
+
+			default:
+				return sorted;
+		}
 	}
 
 	async createNewTask() {
@@ -1478,6 +1963,106 @@ class TaskManagerView extends ItemView {
 		return true; // No constraints or daily/simple recurring
 	}
 
+	// Calculate next occurrence after a specific date (used when completing a task)
+	calculateNextOccurrenceAfterDate(task: Task, afterDate: string): string | null {
+		if (!task.isRecurring || !task.recurringPattern) return null;
+
+		const match = task.recurringPattern.match(/^(\d+)(day|week|month|year)$/);
+		if (!match) return null;
+
+		const interval = parseInt(match[1]);
+		const unit = match[2];
+
+		const endDate = task.recurringEnding && task.recurringEnding !== 'never'
+			? new Date(task.recurringEnding)
+			: null;
+
+		// Start from the current due date
+		const currentDate = new Date(afterDate);
+		currentDate.setHours(0, 0, 0, 0);
+
+		const MAX_ITERATIONS = 1000;
+		let safetyCounter = 0;
+
+		// Special handling for weekly with multiple days
+		// Check if there's another day in the same week first
+		if (unit === 'week' && task.recurringWDay && task.recurringWDay.length > 1) {
+			// Find the next day in the same week that's in the list
+			for (let i = 1; i < 7; i++) { // Check next 6 days (rest of the week)
+				const testDate = new Date(currentDate);
+				testDate.setDate(testDate.getDate() + i);
+				const testDayOfWeek = testDate.getDay();
+
+				if (task.recurringWDay.includes(testDayOfWeek)) {
+					// Found another day in the same week!
+					if (!endDate || testDate <= endDate) {
+						return this.formatDate(testDate);
+					}
+				}
+			}
+		}
+
+		// For monthly with multiple days, check if there's another day in the same month
+		if (unit === 'month' && task.recurringDay && task.recurringDay.length > 1) {
+			const currentDayOfMonth = currentDate.getDate();
+			const currentMonth = currentDate.getMonth();
+
+			// Find the next day in the same month that's in the list
+			for (const day of task.recurringDay.sort((a, b) => a - b)) {
+				if (day > currentDayOfMonth) {
+					const testDate = new Date(currentDate);
+					testDate.setDate(day);
+
+					// Make sure we're still in the same month (handles Feb 30, etc.)
+					if (testDate.getMonth() === currentMonth) {
+						if (!endDate || testDate <= endDate) {
+							return this.formatDate(testDate);
+						}
+					}
+				}
+			}
+		}
+
+		// For yearly with multiple dates, check if there's another date in the same year
+		if (unit === 'year' && task.recurringMonth && task.recurringMonth.length > 1) {
+			const currentYear = currentDate.getFullYear();
+			const currentMonthDay = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+
+			// Find the next date in the same year that's in the list
+			const sortedDates = task.recurringMonth.sort();
+			for (const monthDay of sortedDates) {
+				if (monthDay > currentMonthDay) {
+					const [month, day] = monthDay.split('-').map(Number);
+					const testDate = new Date(currentYear, month - 1, day);
+					testDate.setHours(0, 0, 0, 0);
+
+					if (!endDate || testDate <= endDate) {
+						return this.formatDate(testDate);
+					}
+				}
+			}
+		}
+
+		// No more occurrences in current period, advance by interval
+		this.advanceDate(currentDate, interval, unit);
+
+		// Then find the next date that matches constraints
+		while (!this.matchesRecurrenceConstraints(currentDate, task, unit) && safetyCounter < MAX_ITERATIONS) {
+			currentDate.setDate(currentDate.getDate() + 1);
+			safetyCounter++;
+		}
+
+		// Check if we exceeded the ending date
+		if (endDate && currentDate > endDate) return null;
+
+		if (safetyCounter >= MAX_ITERATIONS) {
+			console.error('Safety limit reached in calculateNextOccurrenceAfterDate');
+			return null;
+		}
+
+		return this.formatDate(currentDate);
+	}
+
 	buildRecurringTaskInstance(recurringTask: Task, dueDate: string): string {
 		const taskIdentifier = this.plugin.settings.taskIdentifier;
 		let projectTag = taskIdentifier;
@@ -1510,14 +2095,62 @@ class TaskManagerView extends ItemView {
 		const header = contentEl.createDiv({ cls: 'content-header' });
 		header.createEl('h2', { text: this.selectedTimelineView.name });
 
-		// Calculate date range
+		// Add sorting dropdown
+		this.renderSortDropdown(header);
+
+		// Calculate date range based on view type
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-		const endDate = new Date(today);
-		endDate.setDate(endDate.getDate() + this.selectedTimelineView.days);
+		let startDate = new Date(today);
+		let endDate = new Date(today);
+
+		const viewType = this.selectedTimelineView.type;
+
+		switch (viewType) {
+			case 'this-week':
+				// Start from today, end at end of current week (Sunday)
+				const dayOfWeek = today.getDay();
+				const daysUntilSunday = 7 - dayOfWeek;
+				endDate.setDate(endDate.getDate() + daysUntilSunday);
+				break;
+
+			case 'next-week':
+				// Start from next Monday, end next Sunday
+				const currentDay = today.getDay();
+				const daysUntilNextMonday = currentDay === 0 ? 1 : 8 - currentDay;
+				startDate.setDate(today.getDate() + daysUntilNextMonday);
+				endDate.setDate(startDate.getDate() + 6);
+				break;
+
+			case 'this-month':
+				// Start from today, end at last day of current month
+				endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+				endDate.setHours(0, 0, 0, 0);
+				break;
+
+			case 'next-month':
+				// Start from first day of next month, end at last day of next month
+				startDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+				endDate = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+				startDate.setHours(0, 0, 0, 0);
+				endDate.setHours(0, 0, 0, 0);
+				break;
+
+			case 'all-tasks':
+				// Show all tasks with due dates
+				startDate = new Date(0); // Beginning of time
+				endDate = new Date(9999, 11, 31); // Far future
+				break;
+
+			case 'date-range':
+			default:
+				// Use the days field for custom date range
+				endDate.setDate(endDate.getDate() + (this.selectedTimelineView.days || 7));
+				break;
+		}
 
 		// Filter overdue tasks (before today, hide templates only if occurrence exists)
-		const overdueTasks = this.tasks.filter(task => {
+		const overdueTasks = viewType !== 'all-tasks' ? this.tasks.filter(task => {
 			if (task.status === 'done') return false;
 			if (!task.dueDate) return false;
 
@@ -1532,11 +2165,26 @@ class TaskManagerView extends ItemView {
 			}
 
 			return this.isOverdue(task.dueDate);
-		});
+		}) : [];
 
-		// Filter tasks in date range (today onwards, hide templates only if occurrence exists)
+		// Filter tasks in date range
 		const timelineTasks = this.tasks.filter(task => {
 			if (task.status === 'done') return false;
+
+			// For all-tasks view, include tasks without due dates
+			if (viewType === 'all-tasks') {
+				// For recurring templates: only hide if there's a materialized occurrence
+				if (task.isRecurring && !task.isGeneratedRecurring) {
+					const hasMaterialized = this.tasks.some(t =>
+						!t.isRecurring &&
+						t.taskName === task.taskName &&
+						t.dueDate === task.dueDate
+					);
+					if (hasMaterialized) return false;
+				}
+				return true; // Include all non-done tasks
+			}
+
 			if (!task.dueDate) return false;
 
 			// For recurring templates: only hide if there's a materialized occurrence
@@ -1550,21 +2198,15 @@ class TaskManagerView extends ItemView {
 			}
 
 			const taskDate = new Date(task.dueDate);
-			return taskDate >= today && taskDate <= endDate;
+			return taskDate >= startDate && taskDate <= endDate;
 		});
 
-		// Sort both by date
-		overdueTasks.sort((a, b) => {
-			if (!a.dueDate || !b.dueDate) return 0;
-			return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-		});
-		timelineTasks.sort((a, b) => {
-			if (!a.dueDate || !b.dueDate) return 0;
-			return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-		});
+		// Sort tasks using selected sort option
+		const sortedOverdueTasks = this.sortTasks(overdueTasks);
+		const sortedTimelineTasks = this.sortTasks(timelineTasks);
 
 		// Calculate total ETA (including overdue)
-		const allTasks = [...overdueTasks, ...timelineTasks];
+		const allTasks = [...sortedOverdueTasks, ...sortedTimelineTasks];
 		const totalEta = this.calculateTotalEta(allTasks);
 		const etaDisplay = contentEl.createDiv({ cls: 'eta-summary' });
 		etaDisplay.createSpan({ text: `Total Time: ${totalEta}` });
@@ -1573,18 +2215,18 @@ class TaskManagerView extends ItemView {
 		const taskList = contentEl.createDiv({ cls: 'task-list' });
 
 		// Render overdue section if there are overdue tasks
-		if (overdueTasks.length > 0) {
+		if (sortedOverdueTasks.length > 0) {
 			const overdueHeader = taskList.createDiv({ cls: 'date-group-header overdue-header' });
-			overdueHeader.setText(`⚠️ Overdue (${overdueTasks.length})`);
+			overdueHeader.setText(`⚠️ Overdue (${sortedOverdueTasks.length})`);
 
-			overdueTasks.forEach(task => {
+			sortedOverdueTasks.forEach(task => {
 				this.renderTask(taskList, task);
 			});
 		}
 
 		// Render upcoming tasks grouped by date
 		let currentDate = '';
-		timelineTasks.forEach(task => {
+		sortedTimelineTasks.forEach(task => {
 			if (task.dueDate && task.dueDate !== currentDate) {
 				currentDate = task.dueDate;
 				const dateHeader = taskList.createDiv({ cls: 'date-group-header' });
@@ -1623,6 +2265,14 @@ class TaskManagerView extends ItemView {
 			eta: string | null;
 			project: string | null;
 			section: string | null;
+			priority: string | null;
+			isRecurring: boolean;
+			recurringPattern: string | null;
+			recurringStarting: string | null;
+			recurringEnding: string | null;
+			recurringWDay: number[] | null;
+			recurringDay: number[] | null;
+			recurringMonth: string[] | null;
 		}) => {
 			await this.createNewTaskFromModal(taskData);
 		});
@@ -1635,6 +2285,14 @@ class TaskManagerView extends ItemView {
 		eta: string | null;
 		project: string | null;
 		section: string | null;
+		priority: string | null;
+		isRecurring: boolean;
+		recurringPattern: string | null;
+		recurringStarting: string | null;
+		recurringEnding: string | null;
+		recurringWDay: number[] | null;
+		recurringDay: number[] | null;
+		recurringMonth: string[] | null;
 	}) {
 		const file = this.app.vault.getAbstractFileByPath(this.plugin.settings.taskFile);
 
@@ -1657,13 +2315,71 @@ class TaskManagerView extends ItemView {
 
 		// Build the new task line
 		let newTaskLine = `- [ ] ${taskData.name}`;
-		if (taskData.dueDate) {
-			newTaskLine += ` due::${taskData.dueDate}`;
+
+		// If recurring, calculate first occurrence due date
+		let calculatedDueDate = taskData.dueDate;
+		if (taskData.isRecurring && taskData.recurringPattern) {
+			// Create a temporary task object to calculate next occurrence
+			const tempTask: Task = {
+				taskName: taskData.name,
+				status: 'todo',
+				lineNumber: 0,
+				isRecurring: true,
+				isGeneratedRecurring: false,
+				recurringPattern: taskData.recurringPattern,
+				recurringStarting: taskData.recurringStarting || this.formatDate(new Date()),
+				recurringEnding: taskData.recurringEnding || null,
+				recurringWDay: taskData.recurringWDay || null,
+				recurringDay: taskData.recurringDay || null,
+				recurringMonth: taskData.recurringMonth || null,
+				dueDate: null,
+				eta: null,
+				project: taskData.project,
+				section: taskData.section,
+				tags: [],
+				rawLine: '',
+				priority: null
+			};
+
+			const firstOccurrence = this.calculateNextOccurrences(tempTask, 1)[0];
+			if (firstOccurrence) {
+				calculatedDueDate = firstOccurrence;
+			}
+		}
+
+		// For recurring tasks, don't add due:: to the template - only to the occurrence
+		if (!taskData.isRecurring && calculatedDueDate) {
+			newTaskLine += ` due::${calculatedDueDate}`;
 		}
 		if (taskData.eta) {
 			newTaskLine += ` eta::${taskData.eta}`;
 		}
+		if (taskData.priority) {
+			newTaskLine += ` priority::${taskData.priority}`;
+		}
 		newTaskLine += ` ${projectTag}`;
+
+		// Add recurring fields if this is a recurring task
+		if (taskData.isRecurring && taskData.recurringPattern) {
+			newTaskLine += ` recurring::${taskData.recurringPattern}`;
+			if (taskData.recurringStarting) {
+				newTaskLine += ` starting::${taskData.recurringStarting}`;
+			}
+			if (taskData.recurringEnding) {
+				newTaskLine += ` ending::${taskData.recurringEnding}`;
+			}
+			if (taskData.recurringWDay && taskData.recurringWDay.length > 0) {
+				const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+				const wdayNames = taskData.recurringWDay.map(i => weekdays[i]);
+				newTaskLine += ` wday::[${wdayNames.join(',')}]`;
+			}
+			if (taskData.recurringDay && taskData.recurringDay.length > 0) {
+				newTaskLine += ` day::[${taskData.recurringDay.join(',') }]`;
+			}
+			if (taskData.recurringMonth && taskData.recurringMonth.length > 0) {
+				newTaskLine += ` month::[${taskData.recurringMonth.join(',')}]`;
+			}
+		}
 
 		// Find first non-header line or insert at beginning
 		let insertIndex = 0;
@@ -1675,9 +2391,16 @@ class TaskManagerView extends ItemView {
 		}
 
 		lines.splice(insertIndex, 0, newTaskLine);
+
+		// If recurring, also create first occurrence instance
+		if (taskData.isRecurring && calculatedDueDate) {
+			const occurrenceLine = `- [ ] ${taskData.name} due::${calculatedDueDate}${taskData.eta ? ` eta::${taskData.eta}` : ''} ${projectTag}`;
+			lines.splice(insertIndex + 1, 0, occurrenceLine);
+		}
+
 		await this.app.vault.modify(file, lines.join('\n'));
 
-		new Notice('Task created!');
+		new Notice(taskData.isRecurring ? 'Recurring task created!' : 'Task created!');
 		await this.loadTasks();
 		this.renderView();
 	}
@@ -1694,6 +2417,57 @@ class TaskManagerView extends ItemView {
 			});
 			this.renderView();
 		});
+		modal.open();
+	}
+
+	deleteTimelineView(index: number) {
+		const view = this.customTimelineViews[index];
+		if (view.isPreset) {
+			new Notice('Cannot delete preset views');
+			return;
+		}
+
+		// Confirm deletion
+		const confirmed = confirm(`Delete timeline view "${view.name}"?`);
+		if (!confirmed) return;
+
+		// Remove from array
+		this.customTimelineViews.splice(index, 1);
+
+		// If deleted view was selected, switch to today
+		if (this.selectedTimelineView?.id === view.id) {
+			this.currentView = 'today';
+			this.selectedTimelineView = null;
+		}
+
+		this.renderView();
+		new Notice(`Deleted timeline view "${view.name}"`);
+	}
+
+	showEditTimelineDialog(view: CustomTimelineView, index: number) {
+		if (view.isPreset) {
+			new Notice('Cannot edit preset views');
+			return;
+		}
+
+		const modal = new TimelineViewModal(this.app, (name: string, days: number) => {
+			// Update the view
+			this.customTimelineViews[index] = {
+				id: view.id, // Keep same ID
+				name: name,
+				type: 'date-range',
+				days: days,
+				isPreset: false
+			};
+
+			// If this view is currently selected, update the reference
+			if (this.selectedTimelineView?.id === view.id) {
+				this.selectedTimelineView = this.customTimelineViews[index];
+			}
+
+			this.renderView();
+			new Notice(`Updated timeline view "${name}"`);
+		}, view.name, view.days || 7); // Pass existing values for editing
 		modal.open();
 	}
 
@@ -1752,22 +2526,27 @@ class TaskManagerView extends ItemView {
 	}
 }
 
-// Modal for creating custom timeline views
+// Modal for creating/editing custom timeline views
 class TimelineViewModal extends Modal {
 	onSubmit: (name: string, days: number) => void;
 	nameInput: HTMLInputElement;
 	daysInput: HTMLInputElement;
+	existingName: string | null;
+	existingDays: number | null;
 
-	constructor(app: App, onSubmit: (name: string, days: number) => void) {
+	constructor(app: App, onSubmit: (name: string, days: number) => void, existingName?: string, existingDays?: number) {
 		super(app);
 		this.onSubmit = onSubmit;
+		this.existingName = existingName || null;
+		this.existingDays = existingDays || null;
 	}
 
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: 'Create Custom Timeline View' });
+		const isEditing = this.existingName !== null;
+		contentEl.createEl('h2', { text: isEditing ? 'Edit Timeline View' : 'Create Custom Timeline View' });
 
 		// Name input
 		const nameContainer = contentEl.createDiv({ cls: 'modal-input-container' });
@@ -1776,6 +2555,9 @@ class TimelineViewModal extends Modal {
 			type: 'text',
 			placeholder: 'e.g., Next 14 Days'
 		});
+		if (this.existingName) {
+			this.nameInput.value = this.existingName;
+		}
 
 		// Days input
 		const daysContainer = contentEl.createDiv({ cls: 'modal-input-container' });
@@ -1784,12 +2566,15 @@ class TimelineViewModal extends Modal {
 			type: 'number',
 			placeholder: 'e.g., 14'
 		});
-		this.daysInput.value = '7';
+		this.daysInput.value = this.existingDays !== null ? this.existingDays.toString() : '7';
 
 		// Buttons
 		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
 
-		const submitBtn = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
+		const submitBtn = buttonContainer.createEl('button', {
+			text: isEditing ? 'Update' : 'Create',
+			cls: 'mod-cta'
+		});
 		submitBtn.addEventListener('click', () => {
 			const name = this.nameInput.value.trim();
 			const days = parseInt(this.daysInput.value);
@@ -1886,25 +2671,25 @@ class RecurringTaskModal extends Modal {
 			}
 		}
 
-		// Starting date
+		// Starting date (with date picker)
 		const startingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		startingContainer.createEl('label', { text: 'Starting Date (YYYY-MM-DD):' });
+		startingContainer.createEl('label', { text: 'Starting Date:' });
 		this.startingInput = startingContainer.createEl('input', {
-			type: 'text',
-			placeholder: new Date().toISOString().split('T')[0]
+			type: 'date'
 		});
 		if (this.task.recurringStarting) {
 			this.startingInput.value = this.task.recurringStarting;
+		} else {
+			this.startingInput.value = new Date().toISOString().split('T')[0];
 		}
 
-		// Ending date
+		// Ending date (with date picker)
 		const endingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		endingContainer.createEl('label', { text: 'Ending Date (YYYY-MM-DD or "never"):' });
+		endingContainer.createEl('label', { text: 'Ending Date (optional):' });
 		this.endingInput = endingContainer.createEl('input', {
-			type: 'text',
-			placeholder: 'never'
+			type: 'date'
 		});
-		if (this.task.recurringEnding) {
+		if (this.task.recurringEnding && this.task.recurringEnding !== 'never') {
 			this.endingInput.value = this.task.recurringEnding;
 		}
 
@@ -2035,12 +2820,33 @@ class NewTaskModal extends Modal {
 		eta: string | null;
 		project: string | null;
 		section: string | null;
+		priority: string | null;
+		isRecurring: boolean;
+		recurringPattern: string | null;
+		recurringStarting: string | null;
+		recurringEnding: string | null;
+		recurringWDay: number[] | null;
+		recurringDay: number[] | null;
+		recurringMonth: string[] | null;
 	}) => void;
 
 	nameInput: HTMLInputElement;
 	dueDateInput: HTMLInputElement;
 	etaInput: HTMLInputElement;
 	projectInput: HTMLInputElement;
+	prioritySelect: HTMLSelectElement;
+
+	// Recurring fields
+	recurringTypeSelect: HTMLSelectElement;
+	intervalInput: HTMLInputElement;
+	startingInput: HTMLInputElement;
+	endingInput: HTMLInputElement;
+	wdayContainer: HTMLElement;
+	dayContainer: HTMLElement;
+	monthContainer: HTMLElement;
+	wdayCheckboxes: { [key: string]: HTMLInputElement } = {};
+	dayInput: HTMLInputElement;
+	monthInput: HTMLInputElement;
 
 	constructor(app: App, view: TaskManagerView, onSubmit: (taskData: any) => void) {
 		super(app);
@@ -2063,12 +2869,11 @@ class NewTaskModal extends Modal {
 		});
 		this.nameInput.focus();
 
-		// Due date
+		// Due date (with date picker)
 		const dueDateContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		dueDateContainer.createEl('label', { text: 'Due Date (YYYY-MM-DD):' });
+		dueDateContainer.createEl('label', { text: 'Due Date:' });
 		this.dueDateInput = dueDateContainer.createEl('input', {
-			type: 'text',
-			placeholder: 'YYYY-MM-DD (optional)'
+			type: 'date'
 		});
 
 		// Pre-fill based on current view
@@ -2102,6 +2907,104 @@ class NewTaskModal extends Modal {
 			}
 			this.projectInput.value = projectPath;
 		}
+
+		// Priority
+		const priorityContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		priorityContainer.createEl('label', { text: 'Priority:' });
+		this.prioritySelect = priorityContainer.createEl('select');
+
+		// Add "No priority" option
+		this.prioritySelect.createEl('option', { text: 'No priority', value: '' });
+
+		// Add all configured priority labels
+		this.view.plugin.settings.priorityLabels.forEach(label => {
+			const option = this.prioritySelect.createEl('option', { text: label.name, value: label.id });
+			// Set style to show the color
+			option.style.backgroundColor = label.color;
+			option.style.color = '#fff';
+		});
+
+		// Recurring configuration section
+		const recurringHeader = contentEl.createEl('h3', { text: 'Recurring Settings (Optional)' });
+		recurringHeader.style.marginTop = '20px';
+
+		// Recurrence type
+		const typeContainer = contentEl.createDiv({ cls: 'modal-input-container' });
+		typeContainer.createEl('label', { text: 'Recurrence Type:' });
+		this.recurringTypeSelect = typeContainer.createEl('select');
+		['None', 'Daily', 'Weekly', 'Monthly', 'Yearly'].forEach(type => {
+			this.recurringTypeSelect.createEl('option', { text: type, value: type.toLowerCase() });
+		});
+
+		// Interval
+		const intervalContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-interval' });
+		intervalContainer.createEl('label', { text: 'Every N (interval):' });
+		this.intervalInput = intervalContainer.createEl('input', {
+			type: 'number',
+			placeholder: '1'
+		});
+		this.intervalInput.value = '1';
+
+		// Starting date (with date picker)
+		const startingContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-starting' });
+		startingContainer.createEl('label', { text: 'Starting Date:' });
+		this.startingInput = startingContainer.createEl('input', {
+			type: 'date'
+		});
+		this.startingInput.value = this.view.formatDate(new Date());
+
+		// Ending date (with date picker)
+		const endingContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-ending' });
+		endingContainer.createEl('label', { text: 'Ending Date (optional):' });
+		this.endingInput = endingContainer.createEl('input', {
+			type: 'date'
+		});
+
+		// Weekly: Days of week
+		this.wdayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-wday' });
+		this.wdayContainer.createEl('label', { text: 'Weekly: Days of week' });
+		const wdayGrid = this.wdayContainer.createDiv({ cls: 'checkbox-grid' });
+		const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+		weekdays.forEach((day, index) => {
+			const checkboxItem = wdayGrid.createDiv({ cls: 'checkbox-item' });
+			const checkbox = checkboxItem.createEl('input', { type: 'checkbox' });
+			checkbox.id = `wday-${day}`;
+			checkboxItem.createEl('label', { text: day.charAt(0).toUpperCase() + day.slice(1), attr: { for: `wday-${day}` } });
+			this.wdayCheckboxes[day] = checkbox;
+		});
+
+		// Monthly: Days of month
+		this.dayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-day' });
+		this.dayContainer.createEl('label', { text: 'Monthly: Days of month (comma-separated):' });
+		this.dayInput = this.dayContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'e.g., 1,15,30'
+		});
+
+		// Yearly: Dates
+		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
+		this.monthContainer.createEl('label', { text: 'Yearly: Dates (MM-DD, comma-separated):' });
+		this.monthInput = this.monthContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'e.g., 01-01,12-25'
+		});
+
+		// Show/hide relevant fields based on type
+		const updateVisibility = () => {
+			const type = this.recurringTypeSelect.value;
+			const isRecurring = type !== 'none';
+
+			intervalContainer.style.display = isRecurring ? '' : 'none';
+			startingContainer.style.display = isRecurring ? '' : 'none';
+			endingContainer.style.display = isRecurring ? '' : 'none';
+
+			this.wdayContainer.style.display = (type === 'weekly') ? '' : 'none';
+			this.dayContainer.style.display = (type === 'monthly') ? '' : 'none';
+			this.monthContainer.style.display = (type === 'yearly') ? '' : 'none';
+		};
+
+		this.recurringTypeSelect.addEventListener('change', updateVisibility);
+		updateVisibility(); // Initial state
 
 		// Buttons
 		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
@@ -2145,7 +3048,78 @@ class NewTaskModal extends Modal {
 			section = parts[1] || null;
 		}
 
-		this.onSubmit({ name, dueDate, eta, project, section });
+		// Extract recurring configuration
+		const recurringType = this.recurringTypeSelect.value;
+		const isRecurring = recurringType !== 'none';
+
+		let recurringPattern: string | null = null;
+		let recurringStarting: string | null = null;
+		let recurringEnding: string | null = null;
+		let recurringWDay: number[] | null = null;
+		let recurringDay: number[] | null = null;
+		let recurringMonth: string[] | null = null;
+
+		if (isRecurring) {
+			const interval = this.intervalInput.value.trim() || '1';
+			// Use full word instead of just first character
+			let unit = '';
+			if (recurringType === 'daily') unit = 'day';
+			else if (recurringType === 'weekly') unit = 'week';
+			else if (recurringType === 'monthly') unit = 'month';
+			else if (recurringType === 'yearly') unit = 'year';
+			recurringPattern = `${interval}${unit}`;
+
+			recurringStarting = this.startingInput.value.trim() || null;
+			recurringEnding = this.endingInput.value.trim() || null;
+
+			// Weekly: Extract selected days
+			if (recurringType === 'weekly') {
+				recurringWDay = [];
+				const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+				weekdays.forEach((day, index) => {
+					if (this.wdayCheckboxes[day].checked) {
+						recurringWDay!.push(index);
+					}
+				});
+				if (recurringWDay.length === 0) recurringWDay = null;
+			}
+
+			// Monthly: Parse days of month
+			if (recurringType === 'monthly') {
+				const dayStr = this.dayInput.value.trim();
+				if (dayStr) {
+					recurringDay = dayStr.split(',').map(d => parseInt(d.trim())).filter(d => !isNaN(d));
+					if (recurringDay.length === 0) recurringDay = null;
+				}
+			}
+
+			// Yearly: Parse dates
+			if (recurringType === 'yearly') {
+				const monthStr = this.monthInput.value.trim();
+				if (monthStr) {
+					recurringMonth = monthStr.split(',').map(m => m.trim()).filter(m => m.length > 0);
+					if (recurringMonth.length === 0) recurringMonth = null;
+				}
+			}
+		}
+
+		const priority = this.prioritySelect.value || null;
+
+		this.onSubmit({
+			name,
+			dueDate,
+			eta,
+			project,
+			section,
+			priority,
+			isRecurring,
+			recurringPattern,
+			recurringStarting,
+			recurringEnding,
+			recurringWDay,
+			recurringDay,
+			recurringMonth
+		});
 		this.close();
 	}
 
@@ -2192,10 +3166,35 @@ class TaskManagerSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		// Priority Labels Section
+		containerEl.createEl('h3', { text: 'Priority Labels' });
+		containerEl.createEl('p', { text: 'Manage custom priority labels for your tasks.' });
+
+		// Container for priority labels
+		const priorityContainer = containerEl.createDiv({ cls: 'priority-labels-container' });
+		this.renderPriorityLabels(priorityContainer);
+
+		// Add new label button
+		new Setting(containerEl)
+			.setName('Add New Priority Label')
+			.addButton(button => button
+				.setButtonText('Add Label')
+				.onClick(async () => {
+					const newLabel: PriorityLabel = {
+						id: `priority-${Date.now()}`,
+						name: 'New Priority',
+						color: '#888888',
+						order: this.plugin.settings.priorityLabels.length + 1
+					};
+					this.plugin.settings.priorityLabels.push(newLabel);
+					await this.plugin.saveSettings();
+					this.display(); // Refresh display
+				}));
+
 		containerEl.createEl('h3', { text: 'Task Format' });
 		containerEl.createEl('p', { text: 'Tasks should follow this format:' });
 		containerEl.createEl('pre', {
-			text: '- [ ] Task name due::2024-01-15 eta::1:30 #tlog/project/section',
+			text: '- [ ] Task name due::2024-01-15 eta::1:30 priority::high #tlog/project/section',
 			cls: 'task-format-example'
 		});
 
@@ -2203,7 +3202,101 @@ class TaskManagerSettingTab extends PluginSettingTab {
 			<li><strong>Checkbox:</strong> - [ ] for todo, - [x] for done</li>
 			<li><strong>Due date:</strong> due::YYYY-MM-DD</li>
 			<li><strong>Estimated time:</strong> eta::HH:MM</li>
+			<li><strong>Priority:</strong> priority::label-id</li>
 			<li><strong>Project structure:</strong> ${this.plugin.settings.taskIdentifier}/project/section</li>
 		`;
+	}
+
+	renderPriorityLabels(container: HTMLElement) {
+		container.empty();
+
+		this.plugin.settings.priorityLabels.forEach((label, index) => {
+			const labelSetting = new Setting(container)
+				.setClass('priority-label-setting');
+
+			// Name input
+			labelSetting.addText(text => text
+				.setPlaceholder('Label name')
+				.setValue(label.name)
+				.onChange(async (value) => {
+					label.name = value;
+					await this.plugin.saveSettings();
+				}));
+
+			// Color input (text for hex)
+			labelSetting.addText(text => {
+				text
+					.setPlaceholder('#RRGGBB')
+					.setValue(label.color)
+					.onChange(async (value) => {
+						// Validate hex color
+						if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
+							label.color = value;
+							await this.plugin.saveSettings();
+							// Update color preview
+							if (colorPreview) {
+								colorPreview.style.backgroundColor = value;
+							}
+						}
+					});
+				text.inputEl.style.width = '100px';
+
+				// Add color preview
+				const colorPreview = text.inputEl.parentElement?.createDiv({ cls: 'color-preview' });
+				if (colorPreview) {
+					colorPreview.style.backgroundColor = label.color;
+					colorPreview.style.width = '30px';
+					colorPreview.style.height = '30px';
+					colorPreview.style.border = '1px solid var(--background-modifier-border)';
+					colorPreview.style.borderRadius = '4px';
+					colorPreview.style.display = 'inline-block';
+					colorPreview.style.marginLeft = '8px';
+					colorPreview.style.verticalAlign = 'middle';
+					colorPreview.style.cursor = 'pointer';
+
+					// Make color preview clickable to open color picker
+					colorPreview.addEventListener('click', () => {
+						const colorInput = document.createElement('input');
+						colorInput.type = 'color';
+						colorInput.value = label.color;
+						colorInput.addEventListener('change', async () => {
+							label.color = colorInput.value;
+							await this.plugin.saveSettings();
+							colorPreview.style.backgroundColor = colorInput.value;
+							text.setValue(colorInput.value);
+						});
+						colorInput.click();
+					});
+				}
+			});
+
+			// Order input
+			labelSetting.addText(text => {
+				text
+					.setPlaceholder('Order')
+					.setValue(label.order.toString())
+					.onChange(async (value) => {
+						const order = parseInt(value);
+						if (!isNaN(order)) {
+							label.order = order;
+							await this.plugin.saveSettings();
+						}
+					});
+				text.inputEl.style.width = '60px';
+			});
+
+			// Label ID display
+			labelSetting.setDesc(`ID: ${label.id} (use in tasks as priority::${label.id})`);
+
+			// Delete button
+			labelSetting.addButton(button => button
+				.setButtonText('Delete')
+				.setWarning()
+				.onClick(async () => {
+					this.plugin.settings.priorityLabels.splice(index, 1);
+					await this.plugin.saveSettings();
+					this.display(); // Refresh display
+				}));
+		});
 	}
 }

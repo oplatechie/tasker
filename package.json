@@ -7,9 +7,13 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
 	},
-	"keywords": ["obsidian", "plugin", "tasks", "todoist"],
-	"author": "",
+	"keywords": ["obsidian", "plugin", "tasks", "todoist", "task-management", "productivity"],
+	"author": "Chinmay K",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/chinmayk/obsidian-task-plugin"
+	},
 	"devDependencies": {
 		"@types/node": "^16.11.6",
 		"@typescript-eslint/eslint-plugin": "5.29.0",

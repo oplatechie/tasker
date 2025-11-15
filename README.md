@@ -95,7 +95,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## Support
 
-- GitHub Issues: [Report bugs or request features](https://github.com/chinmayk/obsidian-task-plugin/issues)
+- GitHub Issues: [Report bugs or request features](https://github.com/oplatechie/tasker/issues)
 - Forum: [Obsidian Community](https://forum.obsidian.md/)
 
 ## Privacy

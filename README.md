@@ -113,4 +113,4 @@ See [LICENSE](LICENSE) for details.
 
 ## Author
 
-Created by [Chinmay K](https://github.com/chinmayk)
+Created by [Chinmay K](https://github.com/oplatechie)

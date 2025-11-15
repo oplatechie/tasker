@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-tasker",
 	"name": "Tasker",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"minAppVersion": "1.4.0",
 	"description": "A comprehensive task management plugin with Todoist-like interface, project organization, and time tracking.",
 	"author": "Chinmay K",

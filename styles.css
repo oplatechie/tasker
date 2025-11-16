@@ -863,3 +863,31 @@
 		font-size: 20px;
 	}
 }
+
+/* Color preview in settings */
+.color-preview {
+	width: 30px;
+	height: 30px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	display: inline-block;
+	margin-left: 8px;
+	vertical-align: middle;
+	cursor: pointer;
+}
+
+/* Priority badge styles */
+.task-priority {
+	color: #fff;
+	padding: 2px 8px;
+	border-radius: 4px;
+	font-size: 0.85em;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+/* Priority dropdown */
+.priority-dropdown {
+	position: absolute;
+	z-index: 1000;
+}

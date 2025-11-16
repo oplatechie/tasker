@@ -106,14 +106,14 @@ export default class TaskManagerPlugin extends Plugin {
 		);
 
 		// Add ribbon icon
-		this.addRibbonIcon('checkmark', 'Task Manager', () => {
+		this.addRibbonIcon('checkmark', 'Task manager', () => {
 			this.activateView().catch(console.error);
 		});
 
 		// Add command to open task manager
 		this.addCommand({
 			id: 'open-task-manager',
-			name: 'Open Task Manager',
+			name: 'Open task manager',
 			callback: () => {
 				this.activateView().catch(console.error);
 			}
@@ -122,7 +122,7 @@ export default class TaskManagerPlugin extends Plugin {
 		// Add command to create new task (opens modal)
 		this.addCommand({
 			id: 'create-new-task',
-			name: 'Create New Task',
+			name: 'Create new task',
 			callback: () => {
 				const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASK_MANAGER);
 				if (leaves.length > 0) {
@@ -193,11 +193,11 @@ class TaskManagerView extends ItemView {
 	collapsedProjects: Set<string> = new Set();
 	isMobile: boolean = false;
 	customTimelineViews: CustomTimelineView[] = [
-		{ id: 'this-week', name: 'This Week', type: 'this-week', isPreset: true },
-		{ id: 'next-week', name: 'Next Week', type: 'next-week', isPreset: true },
-		{ id: 'this-month', name: 'This Month', type: 'this-month', isPreset: true },
-		{ id: 'next-month', name: 'Next Month', type: 'next-month', isPreset: true },
-		{ id: 'all-tasks', name: 'All Tasks', type: 'all-tasks', isPreset: true }
+		{ id: 'this-week', name: 'This week', type: 'this-week', isPreset: true },
+		{ id: 'next-week', name: 'Next week', type: 'next-week', isPreset: true },
+		{ id: 'this-month', name: 'This month', type: 'this-month', isPreset: true },
+		{ id: 'next-month', name: 'Next month', type: 'next-month', isPreset: true },
+		{ id: 'all-tasks', name: 'All tasks', type: 'all-tasks', isPreset: true }
 	];
 	selectedTimelineView: CustomTimelineView | null = null;
 	lastRecurringCheck: number = 0;
@@ -215,7 +215,7 @@ class TaskManagerView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return 'Task Manager';
+		return 'Task manager';
 	}
 
 	getIcon(): string {
@@ -270,7 +270,7 @@ class TaskManagerView extends ItemView {
 			if (!target.closest('.task-menu-container')) {
 				// Close all open menus
 				document.querySelectorAll('.task-menu-dropdown').forEach(menu => {
-					(menu as HTMLElement).style.display = 'none';
+					(menu as HTMLElement).hide();
 				});
 			}
 		};
@@ -616,10 +616,11 @@ class TaskManagerView extends ItemView {
 		// New Task button at top
 		const newTaskBtn = navEl.createDiv({ cls: 'nav-item new-task-btn' });
 		newTaskBtn.createSpan({ text: '+ New Task', cls: 'new-task-text' });
-		newTaskBtn.addEventListener('click', async () => {
-			await this.createNewTask();
-			await this.loadTasks();
-			this.renderView();
+		newTaskBtn.addEventListener('click', () => {
+			this.createNewTask()
+				.then(() => this.loadTasks())
+				.then(() => this.renderView())
+				.catch(console.error);
 		});
 
 		// Today button
@@ -963,9 +964,9 @@ class TaskManagerView extends ItemView {
 		// Checkbox
 		const checkbox = taskEl.createEl('input', { type: 'checkbox' });
 		checkbox.checked = task.status === 'done';
-		checkbox.addEventListener('click', async (e) => {
+		checkbox.addEventListener('click', (e) => {
 			e.stopPropagation();
-			await this.toggleTask(task);
+			this.toggleTask(task).catch(console.error);
 		});
 
 		// Task content
@@ -975,24 +976,28 @@ class TaskManagerView extends ItemView {
 		const menuContainer = taskEl.createDiv({ cls: 'task-menu-container' });
 		const menuButton = menuContainer.createDiv({ cls: 'task-menu-button', text: '⋯' });
 		const menuDropdown = menuContainer.createDiv({ cls: 'task-menu-dropdown' });
-		menuDropdown.style.display = 'none';
+		menuDropdown.hide();
 
 		const deleteOption = menuDropdown.createDiv({ cls: 'task-menu-option', text: '🗑️ Delete' });
-		deleteOption.addEventListener('click', async (e) => {
+		deleteOption.addEventListener('click', (e) => {
 			e.stopPropagation();
-			menuDropdown.style.display = 'none';
-			await this.deleteTask(task);
+			menuDropdown.hide();
+			this.deleteTask(task).catch(console.error);
 		});
 
 		// Toggle menu on button click
 		menuButton.addEventListener('click', (e) => {
 			e.stopPropagation();
-			const isVisible = menuDropdown.style.display === 'block';
+			const isVisible = !menuDropdown.hasClass('is-hidden');
 			// Hide all other menus first
 			document.querySelectorAll('.task-menu-dropdown').forEach(menu => {
-				(menu as HTMLElement).style.display = 'none';
+				(menu as HTMLElement).hide();
 			});
-			menuDropdown.style.display = isVisible ? 'none' : 'block';
+			if (isVisible) {
+				menuDropdown.hide();
+			} else {
+				menuDropdown.show();
+			}
 		});
 
 		// Note: Menu closing on outside click is handled by global click handler in setupGlobalClickHandler()
@@ -1115,18 +1120,18 @@ class TaskManagerView extends ItemView {
 			}
 		});
 
-		taskNameEl.addEventListener('blur', async () => {
+		taskNameEl.addEventListener('blur', () => {
 			if (isEditing) {
 				isEditing = false;
 				taskNameEl.contentEditable = 'false';
 
 				// Get the raw text content with [[links]]
-				let newName = taskNameEl.innerText.trim();
+				const newName = taskNameEl.innerText.trim();
 
 				// Check if the content has changed
 				if (newName !== task.taskName) {
 					task.taskName = newName;
-					await this.updateTask(task);
+					this.updateTask(task).catch(console.error);
 				}
 
 				// Re-render with formatted links
@@ -1204,11 +1209,12 @@ class TaskManagerView extends ItemView {
 		} else {
 			// Add due date button
 			const addDueBtn = metadata.createSpan({ cls: 'task-add-due', text: '+ Due' });
-			addDueBtn.addEventListener('click', async () => {
+			addDueBtn.addEventListener('click', () => {
 				const today = this.formatDate(new Date());
 				task.dueDate = today;
-				await this.updateTask(task);
-				this.renderView();
+				this.updateTask(task)
+					.then(() => this.renderView())
+					.catch(console.error);
 			});
 		}
 
@@ -1218,20 +1224,13 @@ class TaskManagerView extends ItemView {
 			if (priorityLabel) {
 				const priorityEl = metadata.createSpan({ cls: 'task-priority' });
 				priorityEl.style.backgroundColor = priorityLabel.color;
-				priorityEl.style.color = '#fff';
-				priorityEl.style.padding = '2px 8px';
-				priorityEl.style.borderRadius = '4px';
-				priorityEl.style.fontSize = '0.85em';
-				priorityEl.style.fontWeight = '500';
 				priorityEl.setText(priorityLabel.name);
 
 				// Click to change priority
-				priorityEl.style.cursor = 'pointer';
-				priorityEl.addEventListener('click', async () => {
+				priorityEl.addEventListener('click', () => {
 					// Create a dropdown to change priority
 					const dropdown = document.createElement('select');
-					dropdown.style.position = 'absolute';
-					dropdown.style.zIndex = '1000';
+					dropdown.addClass('priority-dropdown');
 
 					// Add "No priority" option
 					const noneOption = dropdown.createEl('option', { value: '' });
@@ -1246,10 +1245,11 @@ class TaskManagerView extends ItemView {
 						}
 					});
 
-					dropdown.addEventListener('change', async () => {
+					dropdown.addEventListener('change', () => {
 						task.priority = dropdown.value || null;
-						await this.updateTask(task);
-						this.renderView();
+						this.updateTask(task)
+							.then(() => this.renderView())
+							.catch(console.error);
 					});
 
 					priorityEl.appendChild(dropdown);
@@ -1262,12 +1262,13 @@ class TaskManagerView extends ItemView {
 		} else {
 			// Add priority button
 			const addPriorityBtn = metadata.createSpan({ cls: 'task-add-priority', text: '+ Priority' });
-			addPriorityBtn.addEventListener('click', async () => {
+			addPriorityBtn.addEventListener('click', () => {
 				// Set to first priority label if available
 				if (this.plugin.settings.priorityLabels.length > 0) {
 					task.priority = this.plugin.settings.priorityLabels[0].id;
-					await this.updateTask(task);
-					this.renderView();
+					this.updateTask(task)
+						.then(() => this.renderView())
+						.catch(console.error);
 				}
 			});
 		}
@@ -1282,12 +1283,13 @@ class TaskManagerView extends ItemView {
 			});
 			etaSpan.contentEditable = 'true';
 
-			etaSpan?.addEventListener('blur', async () => {
+			etaSpan?.addEventListener('blur', () => {
 				const newEta = etaSpan.getText().trim();
 				if (newEta !== task.eta && this.isValidEta(newEta)) {
 					task.eta = newEta;
-					await this.updateTask(task);
-					this.renderView();
+					this.updateTask(task)
+						.then(() => this.renderView())
+						.catch(console.error);
 				} else if (!this.isValidEta(newEta)) {
 					new Notice('Invalid ETA format. Use H:MM or HH:MM');
 					etaSpan.setText(task.eta || '');
@@ -1303,10 +1305,11 @@ class TaskManagerView extends ItemView {
 		} else {
 			// Add ETA button
 			const addEtaBtn = metadata.createSpan({ cls: 'task-add-eta', text: '+ ETA' });
-			addEtaBtn.addEventListener('click', async () => {
+			addEtaBtn.addEventListener('click', () => {
 				task.eta = '1:00';
-				await this.updateTask(task);
-				this.renderView();
+				this.updateTask(task)
+					.then(() => this.renderView())
+					.catch(console.error);
 			});
 		}
 
@@ -1323,7 +1326,7 @@ class TaskManagerView extends ItemView {
 		});
 		projectSpan.contentEditable = 'true';
 
-		projectSpan?.addEventListener('blur', async () => {
+		projectSpan?.addEventListener('blur', () => {
 			const newProject = projectSpan.getText().trim();
 			const oldProject = task.project
 				? (task.section ? `${task.project}/${task.section}` : task.project)
@@ -1334,8 +1337,9 @@ class TaskManagerView extends ItemView {
 				const parts = newProject.split('/');
 				task.project = parts[0] || null;
 				task.section = parts[1] || null;
-				await this.updateTask(task);
-				this.renderView();
+				this.updateTask(task)
+					.then(() => this.renderView())
+					.catch(console.error);
 			}
 		});
 
@@ -1792,7 +1796,6 @@ class TaskManagerView extends ItemView {
 		if (!file || !(file instanceof TFile)) return;
 
 		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
 
 		// Find recurring tasks that need to be materialized
 		const recurringTasks = this.tasks.filter(t => t.isRecurring && !t.isGeneratedRecurring);
@@ -2697,7 +2700,7 @@ class RecurringTaskModal extends Modal {
 		];
 
 		options.forEach(opt => {
-			const option = this.recurringTypeSelect.createEl('option', {
+			this.recurringTypeSelect.createEl('option', {
 				value: opt.value,
 				text: opt.text
 			});
@@ -2765,7 +2768,11 @@ class RecurringTaskModal extends Modal {
 				checkbox.checked = true;
 			}
 		});
-		this.wdayContainer.style.display = this.recurringTypeSelect.value === 'week' ? 'block' : 'none';
+		if (this.recurringTypeSelect.value === 'week') {
+			this.wdayContainer.show();
+		} else {
+			this.wdayContainer.hide();
+		}
 
 		// Monthly: days of month
 		this.dayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-day' });
@@ -2777,7 +2784,11 @@ class RecurringTaskModal extends Modal {
 		if (this.task.recurringDay && this.task.recurringDay.length > 0) {
 			this.dayInput.value = this.task.recurringDay.join(',');
 		}
-		this.dayContainer.style.display = this.recurringTypeSelect.value === 'month' ? 'block' : 'none';
+		if (this.recurringTypeSelect.value === 'month') {
+			this.dayContainer.show();
+		} else {
+			this.dayContainer.hide();
+		}
 
 		// Yearly: specific dates
 		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
@@ -2789,14 +2800,18 @@ class RecurringTaskModal extends Modal {
 		if (this.task.recurringMonth && this.task.recurringMonth.length > 0) {
 			this.monthInput.value = this.task.recurringMonth.join(',');
 		}
-		this.monthContainer.style.display = this.recurringTypeSelect.value === 'year' ? 'block' : 'none';
+		if (this.recurringTypeSelect.value === 'year') {
+			this.monthContainer.show();
+		} else {
+			this.monthContainer.hide();
+		}
 
 		// Update visibility when type changes
 		this.recurringTypeSelect.addEventListener('change', () => {
 			const type = this.recurringTypeSelect.value;
-			this.wdayContainer.style.display = type === 'week' ? 'block' : 'none';
-			this.dayContainer.style.display = type === 'month' ? 'block' : 'none';
-			this.monthContainer.style.display = type === 'year' ? 'block' : 'none';
+			if (type === 'week') { this.wdayContainer.show(); } else { this.wdayContainer.hide(); }
+			if (type === 'month') { this.dayContainer.show(); } else { this.dayContainer.hide(); }
+			if (type === 'year') { this.monthContainer.show(); } else { this.monthContainer.hide(); }
 		});
 
 		// Buttons
@@ -2899,7 +2914,7 @@ class NewTaskModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: 'Create New Task' });
+		contentEl.createEl('h2', { text: 'Create new task' });
 
 		// Task name
 		const nameContainer = contentEl.createDiv({ cls: 'modal-input-container' });
@@ -3035,13 +3050,19 @@ class NewTaskModal extends Modal {
 			const type = this.recurringTypeSelect.value;
 			const isRecurring = type !== 'none';
 
-			intervalContainer.style.display = isRecurring ? '' : 'none';
-			startingContainer.style.display = isRecurring ? '' : 'none';
-			endingContainer.style.display = isRecurring ? '' : 'none';
+			if (isRecurring) {
+				intervalContainer.show();
+				startingContainer.show();
+				endingContainer.show();
+			} else {
+				intervalContainer.hide();
+				startingContainer.hide();
+				endingContainer.hide();
+			}
 
-			this.wdayContainer.style.display = (type === 'weekly') ? '' : 'none';
-			this.dayContainer.style.display = (type === 'monthly') ? '' : 'none';
-			this.monthContainer.style.display = (type === 'yearly') ? '' : 'none';
+			if (type === 'weekly') { this.wdayContainer.show(); } else { this.wdayContainer.hide(); }
+			if (type === 'monthly') { this.dayContainer.show(); } else { this.dayContainer.hide(); }
+			if (type === 'yearly') { this.monthContainer.show(); } else { this.monthContainer.hide(); }
 		};
 
 		this.recurringTypeSelect.addEventListener('change', updateVisibility);
@@ -3228,7 +3249,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 			.setHeading();
 
 		new Setting(containerEl)
-			.setName('Task File')
+			.setName('Task file')
 			.setDesc('Path to the markdown file containing your tasks (e.g., tasks.md)')
 			.addText(text => text
 				.setPlaceholder('tasks.md')
@@ -3239,7 +3260,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Task Identifier')
+			.setName('Task identifier')
 			.setDesc('Tag used to identify tasks (e.g., #tlog). Tasks can have nested structure like #tlog/project/section')
 			.addText(text => text
 				.setPlaceholder('#tlog')
@@ -3251,7 +3272,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		// Priority Labels Section
 		new Setting(containerEl)
-			.setName('Priority Labels')
+			.setName('Priority labels')
 			.setDesc('Manage custom priority labels for your tasks.')
 			.setHeading();
 
@@ -3261,7 +3282,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		// Add new label button
 		new Setting(containerEl)
-			.setName('Add New Priority Label')
+			.setName('Add new priority label')
 			.addButton(button => button
 				.setButtonText('Add Label')
 				.onClick(async () => {
@@ -3277,7 +3298,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Task Format')
+			.setName('Task format')
 			.setDesc('Tasks should follow this format:')
 			.setHeading();
 
@@ -3347,23 +3368,15 @@ class TaskManagerSettingTab extends PluginSettingTab {
 				const colorPreview = text.inputEl.parentElement?.createDiv({ cls: 'color-preview' });
 				if (colorPreview) {
 					colorPreview.style.backgroundColor = label.color;
-					colorPreview.style.width = '30px';
-					colorPreview.style.height = '30px';
-					colorPreview.style.border = '1px solid var(--background-modifier-border)';
-					colorPreview.style.borderRadius = '4px';
-					colorPreview.style.display = 'inline-block';
-					colorPreview.style.marginLeft = '8px';
-					colorPreview.style.verticalAlign = 'middle';
-					colorPreview.style.cursor = 'pointer';
 
 					// Make color preview clickable to open color picker
 					colorPreview.addEventListener('click', () => {
 						const colorInput = document.createElement('input');
 						colorInput.type = 'color';
 						colorInput.value = label.color;
-						colorInput.addEventListener('change', async () => {
+						colorInput.addEventListener('change', () => {
 							label.color = colorInput.value;
-							await this.plugin.saveSettings();
+							this.plugin.saveSettings().catch(console.error);
 							colorPreview.style.backgroundColor = colorInput.value;
 							text.setValue(colorInput.value);
 						});

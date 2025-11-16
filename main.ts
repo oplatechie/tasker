@@ -165,7 +165,7 @@ export default class TaskManagerPlugin extends Plugin {
 
 		// Reveal the leaf
 		if (leaf) {
-			workspace.revealLeaf(leaf);
+			void workspace.revealLeaf(leaf);
 		}
 	}
 
@@ -485,7 +485,7 @@ class TaskManagerView extends ItemView {
 
 		// Today card
 		const todayCard = navContainer.createDiv({ cls: 'mobile-nav-card' });
-		todayCard.createSpan({ text: '📅 Today', cls: 'mobile-nav-card-title' });
+		todayCard.createSpan({ text: '📅 today', cls: 'mobile-nav-card-title' });
 		todayCard.addEventListener('click', () => {
 			this.currentView = 'today';
 			this.renderView();
@@ -504,7 +504,7 @@ class TaskManagerView extends ItemView {
 
 		// Done card
 		const doneCard = navContainer.createDiv({ cls: 'mobile-nav-card' });
-		doneCard.createSpan({ text: '✓ Done', cls: 'mobile-nav-card-title' });
+		doneCard.createSpan({ text: '✓ done', cls: 'mobile-nav-card-title' });
 		doneCard.addEventListener('click', () => {
 			this.currentView = 'done';
 			this.renderView();
@@ -592,8 +592,8 @@ class TaskManagerView extends ItemView {
 			this.renderView();
 		});
 
-		const title = this.currentView === 'today' ? 'Today' :
-					  this.currentView === 'done' ? 'Done' :
+		const title = this.currentView === 'today' ? 'today' :
+					  this.currentView === 'done' ? 'done' :
 					  this.selectedSection ? `${this.selectedProject} / ${this.selectedSection}` :
 					  this.selectedProject || 'Tasks';
 
@@ -627,7 +627,7 @@ class TaskManagerView extends ItemView {
 		const todayBtn = navEl.createDiv({
 			cls: this.currentView === 'today' ? 'nav-item active' : 'nav-item'
 		});
-		todayBtn.setText('📅 Today');
+		todayBtn.setText('📅 today');
 		todayBtn.addEventListener('click', () => {
 			this.currentView = 'today';
 			this.selectedProject = null;
@@ -688,7 +688,7 @@ class TaskManagerView extends ItemView {
 		const doneBtn = navEl.createDiv({
 			cls: this.currentView === 'done' ? 'nav-item active' : 'nav-item'
 		});
-		doneBtn.setText('✓ Done');
+		doneBtn.setText('✓ done');
 		doneBtn.addEventListener('click', () => {
 			this.currentView = 'done';
 			this.selectedProject = null;
@@ -817,7 +817,7 @@ class TaskManagerView extends ItemView {
 
 	renderTodayView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
-		header.createEl('h2', { text: 'Today' });
+		header.createEl('h2', { text: 'today' });
 
 		// Add sorting dropdown
 		this.renderSortDropdown(header);
@@ -865,7 +865,7 @@ class TaskManagerView extends ItemView {
 
 	renderDoneView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
-		header.createEl('h2', { text: 'Done' });
+		header.createEl('h2', { text: 'done' });
 
 		// Add sorting dropdown
 		this.renderSortDropdown(header);
@@ -982,7 +982,7 @@ class TaskManagerView extends ItemView {
 		deleteOption.addEventListener('click', (e) => {
 			e.stopPropagation();
 			menuDropdown.hide();
-			this.deleteTask(task).catch(console.error);
+			this.deleteTask(task);
 		});
 
 		// Toggle menu on button click
@@ -1016,8 +1016,8 @@ class TaskManagerView extends ItemView {
 					new ConfirmModal(
 						this.app,
 						`Delete task "${task.taskName}"?`,
-						async () => {
-							await this.deleteTask(task);
+						() => {
+							this.deleteTask(task);
 						}
 					).open();
 				}
@@ -1179,12 +1179,13 @@ class TaskManagerView extends ItemView {
 				dateInput.focus();
 
 				// Handle save
-				const saveDate = async () => {
+				const saveDate = () => {
 					const newDate = dateInput.value;
 					if (newDate && newDate !== task.dueDate) {
 						task.dueDate = newDate;
-						await this.updateTask(task);
-						this.renderView();
+						this.updateTask(task)
+							.then(() => this.renderView())
+							.catch(console.error);
 					} else if (!newDate) {
 						// If cleared, just restore original
 						this.renderView();
@@ -1291,7 +1292,7 @@ class TaskManagerView extends ItemView {
 						.then(() => this.renderView())
 						.catch(console.error);
 				} else if (!this.isValidEta(newEta)) {
-					new Notice('Invalid ETA format. Use H:MM or HH:MM');
+					new Notice('Invalid ETA format. Use h:mm or hh:mm');
 					etaSpan.setText(task.eta || '');
 				}
 			});
@@ -1561,7 +1562,7 @@ class TaskManagerView extends ItemView {
 		}
 	}
 
-	async deleteTask(task: Task) {
+	deleteTask(task: Task) {
 		const file = this.app.vault.getAbstractFileByPath(this.plugin.settings.taskFile);
 
 		if (!file || !(file instanceof TFile)) {
@@ -1573,20 +1574,25 @@ class TaskManagerView extends ItemView {
 		new ConfirmModal(
 			this.app,
 			`Delete task "${task.taskName}"?`,
-			async () => {
-				const content = await this.app.vault.read(file);
-				const lines = content.split('\n');
+			() => {
+				this.app.vault.read(file)
+					.then(content => {
+						const lines = content.split('\n');
 
-				if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
-					// Remove the line
-					lines.splice(task.lineNumber, 1);
-					await this.app.vault.modify(file, lines.join('\n'));
-					await this.loadTasks();
-					this.renderView();
-					new Notice(`Deleted task "${task.taskName}"`);
-				} else {
-					new Notice('Cannot delete virtual task');
-				}
+						if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
+							// Remove the line
+							lines.splice(task.lineNumber, 1);
+							return this.app.vault.modify(file, lines.join('\n'))
+								.then(() => this.loadTasks())
+								.then(() => {
+									this.renderView();
+									new Notice(`Deleted task "${task.taskName}"`);
+								});
+						} else {
+							new Notice('Cannot delete virtual task');
+						}
+					})
+					.catch(console.error);
 			}
 		).open();
 	}
@@ -2305,16 +2311,16 @@ class TaskManagerView extends ItemView {
 		checkDate.setHours(0, 0, 0, 0);
 
 		if (checkDate.getTime() === today.getTime()) {
-			return 'Today - ' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+			return 'today - ' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 		} else if (checkDate.getTime() === tomorrow.getTime()) {
-			return 'Tomorrow - ' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+			return 'tomorrow - ' + date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 		} else {
 			return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 		}
 	}
 
 	showNewTaskModal() {
-		const modal = new NewTaskModal(this.app, this, async (taskData: {
+		const modal = new NewTaskModal(this.app, this, (taskData: {
 			name: string;
 			dueDate: string | null;
 			eta: string | null;
@@ -2329,7 +2335,7 @@ class TaskManagerView extends ItemView {
 			recurringDay: number[] | null;
 			recurringMonth: string[] | null;
 		}) => {
-			await this.createNewTaskFromModal(taskData);
+			this.createNewTaskFromModal(taskData).catch(console.error);
 		});
 		modal.open();
 	}
@@ -2530,7 +2536,7 @@ class TaskManagerView extends ItemView {
 	}
 
 	showRecurringEditor(task: Task) {
-		const modal = new RecurringTaskModal(this.app, task, async (updatedTask: Task) => {
+		const modal = new RecurringTaskModal(this.app, task, (updatedTask: Task) => {
 			// If converting to recurring or editing recurring settings
 			if (updatedTask.isRecurring) {
 				// Set starting date if not provided
@@ -2547,16 +2553,16 @@ class TaskManagerView extends ItemView {
 			}
 
 			// Save the updated task
-			await this.updateTask(updatedTask);
-
-			// If this is a recurring task, create its first occurrence (if not already exists)
-			if (updatedTask.isRecurring && !updatedTask.isGeneratedRecurring) {
-				await this.createFirstOccurrence(updatedTask);
-			}
-
-			// Reload tasks to get updated state
-			await this.loadTasks();
-			this.renderView();
+			this.updateTask(updatedTask)
+				.then(() => {
+					// If this is a recurring task, create its first occurrence (if not already exists)
+					if (updatedTask.isRecurring && !updatedTask.isGeneratedRecurring) {
+						return this.createFirstOccurrence(updatedTask);
+					}
+				})
+				.then(() => this.loadTasks())
+				.then(() => this.renderView())
+				.catch(console.error);
 		});
 		modal.open();
 	}
@@ -2619,7 +2625,7 @@ class TimelineViewModal extends Modal {
 
 		// Days input
 		const daysContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		daysContainer.createEl('label', { text: 'Number of Days:' });
+		daysContainer.createEl('label', { text: 'Number of days:' });
 		this.daysInput = daysContainer.createEl('input', {
 			type: 'number',
 			placeholder: 'e.g., 14'
@@ -2688,7 +2694,7 @@ class RecurringTaskModal extends Modal {
 
 		// Recurring pattern type (day/week/month/year)
 		const typeContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		typeContainer.createEl('label', { text: 'Recurrence Type:' });
+		typeContainer.createEl('label', { text: 'Recurrence type:' });
 		this.recurringTypeSelect = typeContainer.createEl('select');
 
 		const options = [
@@ -2927,7 +2933,7 @@ class NewTaskModal extends Modal {
 
 		// Due date (with date picker)
 		const dueDateContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		dueDateContainer.createEl('label', { text: 'Due Date:' });
+		dueDateContainer.createEl('label', { text: 'Due date:' });
 		this.dueDateInput = dueDateContainer.createEl('input', {
 			type: 'date'
 		});
@@ -2949,7 +2955,7 @@ class NewTaskModal extends Modal {
 
 		// Project/Section
 		const projectContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		projectContainer.createEl('label', { text: 'Project/Section:' });
+		projectContainer.createEl('label', { text: 'Project/section:' });
 		this.projectInput = projectContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'project/section (optional)'
@@ -2977,16 +2983,17 @@ class NewTaskModal extends Modal {
 			const option = this.prioritySelect.createEl('option', { text: label.name, value: label.id });
 			// Set style to show the color
 			option.style.backgroundColor = label.color;
-			option.style.color = '#fff';
+			// Use CSS class for text color
+			option.addClass('priority-option');
 		});
 
 		// Recurring configuration section
-		const recurringHeader = contentEl.createEl('h3', { text: 'Recurring Settings (Optional)' });
-		recurringHeader.style.marginTop = '20px';
+		const recurringHeader = contentEl.createEl('h3', { text: 'Recurring settings (optional)' });
+		recurringHeader.addClass('recurring-header');
 
 		// Recurrence type
 		const typeContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		typeContainer.createEl('label', { text: 'Recurrence Type:' });
+		typeContainer.createEl('label', { text: 'Recurrence type:' });
 		this.recurringTypeSelect = typeContainer.createEl('select');
 		['None', 'Daily', 'Weekly', 'Monthly', 'Yearly'].forEach(type => {
 			this.recurringTypeSelect.createEl('option', { text: type, value: type.toLowerCase() });
@@ -3362,7 +3369,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 							}
 						}
 					});
-				text.inputEl.style.width = '100px';
+				text.inputEl.addClass('color-input');
 
 				// Add color preview
 				const colorPreview = text.inputEl.parentElement?.createDiv({ cls: 'color-preview' });
@@ -3397,7 +3404,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 						}
 					});
-				text.inputEl.style.width = '60px';
+				text.inputEl.addClass('order-input');
 			});
 
 			// Label ID display

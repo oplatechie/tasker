@@ -891,3 +891,22 @@
 	position: absolute;
 	z-index: 1000;
 }
+
+/* Priority option text color */
+.priority-option {
+	color: #fff;
+}
+
+/* Recurring header spacing */
+.recurring-header {
+	margin-top: 20px;
+}
+
+/* Input field widths */
+.color-input {
+	width: 100px;
+}
+
+.order-input {
+	width: 60px;
+}

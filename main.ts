@@ -7,7 +7,8 @@ import {
 	WorkspaceLeaf,
 	TFile,
 	Notice,
-	Modal
+	Modal,
+	EventRef
 } from 'obsidian';
 
 // Priority Label Interface
@@ -20,6 +21,23 @@ interface PriorityLabel {
 
 // Sorting options
 type SortOption = 'dueDate' | 'duration' | 'alphabetical' | 'project' | 'priority';
+
+// New Task Data Interface (for modals)
+interface NewTaskData {
+	name: string;
+	dueDate: string | null;
+	eta: string | null;
+	project: string | null;
+	section: string | null;
+	priority: string | null;
+	isRecurring: boolean;
+	recurringPattern: string | null;
+	recurringStarting: string | null;
+	recurringEnding: string | null;
+	recurringWDay: number[] | null;
+	recurringDay: number[] | null;
+	recurringMonth: string[] | null;
+}
 
 // Plugin Settings Interface
 interface TaskManagerSettings {
@@ -152,8 +170,7 @@ export default class TaskManagerPlugin extends Plugin {
 	}
 
 	onunload() {
-		// Cleanup
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_TASK_MANAGER);
+		// Cleanup - leaves are automatically detached by Obsidian
 	}
 
 	async loadSettings() {
@@ -172,7 +189,7 @@ class TaskManagerView extends ItemView {
 	currentView: 'today' | 'projects' | 'done' | 'custom-timeline' = 'today';
 	selectedProject: string | null = null;
 	selectedSection: string | null = null;
-	fileWatcherRef: any = null;
+	fileWatcherRef: EventRef | null = null;
 	collapsedProjects: Set<string> = new Set();
 	isMobile: boolean = false;
 	customTimelineViews: CustomTimelineView[] = [
@@ -223,6 +240,9 @@ class TaskManagerView extends ItemView {
 			document.removeEventListener('click', this.globalClickHandler);
 			this.globalClickHandler = null;
 		}
+
+		// Return promise to satisfy async requirement
+		return Promise.resolve();
 	}
 
 	checkIsMobile(): boolean {
@@ -327,7 +347,7 @@ class TaskManagerView extends ItemView {
 		const recurringEnding = endingMatch ? endingMatch[1] : null;
 
 		// Extract wday (for weekly recurring)
-		const wdayMatch = line.match(/wday::\[([^\]]+)\]/);
+		const wdayMatch = line.match(/wday::\[([^\]]+)]/);
 		let recurringWDay: number[] | null = null;
 		if (wdayMatch) {
 			const days = wdayMatch[1].split(',').map(d => d.trim().toLowerCase());
@@ -339,14 +359,14 @@ class TaskManagerView extends ItemView {
 		}
 
 		// Extract day (for monthly recurring)
-		const dayMatch = line.match(/day::\[([^\]]+)\]/);
+		const dayMatch = line.match(/day::\[([^\]]+)]/);
 		let recurringDay: number[] | null = null;
 		if (dayMatch) {
 			recurringDay = dayMatch[1].split(',').map(d => parseInt(d.trim())).filter(d => !isNaN(d));
 		}
 
 		// Extract month (for yearly recurring)
-		const monthMatch = line.match(/month::\[([^\]]+)\]/);
+		const monthMatch = line.match(/month::\[([^\]]+)]/);
 		let recurringMonth: string[] | null = null;
 		if (monthMatch) {
 			recurringMonth = monthMatch[1].split(',').map(m => m.trim());
@@ -385,9 +405,9 @@ class TaskManagerView extends ItemView {
 			.replace(/recurring::\S+/g, '')
 			.replace(/starting::\S+/g, '')
 			.replace(/ending::\S+/g, '')
-			.replace(/wday::\[([^\]]+)\]/g, '')
-			.replace(/day::\[([^\]]+)\]/g, '')
-			.replace(/month::\[([^\]]+)\]/g, '')
+			.replace(/wday::\[([^\]]+)]/g, '')
+			.replace(/day::\[([^\]]+)]/g, '')
+			.replace(/month::\[([^\]]+)]/g, '')
 			.replace(/#[\w\/]+/g, '')
 			.trim();
 
@@ -988,10 +1008,13 @@ class TaskManagerView extends ItemView {
 				if (touchStarted) {
 					// Trigger long-press action
 					e.preventDefault();
-					const confirmed = confirm(`Delete task "${task.taskName}"?`);
-					if (confirmed) {
-						this.deleteTask(task);
-					}
+					new ConfirmModal(
+						this.app,
+						`Delete task "${task.taskName}"?`,
+						async () => {
+							await this.deleteTask(task);
+						}
+					).open();
 				}
 			}, 800); // 800ms for long press
 		});
@@ -1017,18 +1040,31 @@ class TaskManagerView extends ItemView {
 
 		let isEditing = false;
 
-		// Convert [[note]] links to clickable links
-		const renderTaskName = (name: string): string => {
-			// Replace [[note]] with clickable internal links
-			return name.replace(/\[\[([^\]]+)\]\]/g, (_match, noteName) => {
-				return `<a href="#" class="internal-link" data-note="${noteName}">${noteName}</a>`;
+		// Convert [[note]] links to clickable links using DOM
+		const renderTaskName = (name: string, container: HTMLElement) => {
+			container.empty();
+			const parts = name.split(/(\[\[[^\]]+\]\])/g);
+
+			parts.forEach(part => {
+				if (part.startsWith('[[') && part.endsWith(']]')) {
+					// Extract note name
+					const noteName = part.slice(2, -2);
+					const link = container.createEl('a', {
+						text: noteName,
+						cls: 'internal-link',
+						href: '#'
+					});
+					link.setAttribute('data-note', noteName);
+				} else if (part) {
+					container.appendText(part);
+				}
 			});
 		};
 
 		// Render the task name with links
 		const updateTaskNameDisplay = () => {
 			if (!isEditing) {
-				taskNameEl.innerHTML = renderTaskName(task.taskName);
+				renderTaskName(task.taskName, taskNameEl);
 				taskNameEl.contentEditable = 'false';
 			}
 		};
@@ -1045,8 +1081,8 @@ class TaskManagerView extends ItemView {
 				if (noteName) {
 					// Open the note in Obsidian
 					const file = this.app.vault.getAbstractFileByPath(noteName + '.md');
-					if (file) {
-						this.app.workspace.getLeaf().openFile(file as TFile);
+					if (file instanceof TFile) {
+						this.app.workspace.getLeaf().openFile(file);
 					} else {
 						// Try to find the file by name
 						const files = this.app.vault.getMarkdownFiles();
@@ -1116,8 +1152,11 @@ class TaskManagerView extends ItemView {
 		// Due date (editable with date picker)
 		if (task.dueDate) {
 			const dueEl = metadata.createSpan({ cls: 'task-due' });
-			dueEl.innerHTML = `📅 <span class="editable-date">${task.dueDate}</span>`;
-			const dateSpan = dueEl.querySelector('.editable-date') as HTMLElement;
+			dueEl.appendText('📅 ');
+			const dateSpan = dueEl.createSpan({
+				text: task.dueDate,
+				cls: 'editable-date'
+			});
 
 			if (this.isOverdue(task.dueDate)) {
 				dueEl.addClass('overdue');
@@ -1236,8 +1275,12 @@ class TaskManagerView extends ItemView {
 		// ETA (editable)
 		if (task.eta) {
 			const etaEl = metadata.createSpan({ cls: 'task-eta' });
-			etaEl.innerHTML = `⏱️ <span contenteditable="true" class="editable-eta">${task.eta}</span>`;
-			const etaSpan = etaEl.querySelector('.editable-eta') as HTMLElement;
+			etaEl.appendText('⏱️ ');
+			const etaSpan = etaEl.createSpan({
+				text: task.eta,
+				cls: 'editable-eta'
+			});
+			etaSpan.contentEditable = 'true';
 
 			etaSpan?.addEventListener('blur', async () => {
 				const newEta = etaSpan.getText().trim();
@@ -1273,8 +1316,12 @@ class TaskManagerView extends ItemView {
 			? (task.section ? `${task.project}/${task.section}` : task.project)
 			: '';
 
-		projectEl.innerHTML = `📁 <span contenteditable="true" class="editable-project">${projectText}</span>`;
-		const projectSpan = projectEl.querySelector('.editable-project') as HTMLElement;
+		projectEl.appendText('📁 ');
+		const projectSpan = projectEl.createSpan({
+			text: projectText,
+			cls: 'editable-project'
+		});
+		projectSpan.contentEditable = 'true';
 
 		projectSpan?.addEventListener('blur', async () => {
 			const newProject = projectSpan.getText().trim();
@@ -1519,22 +1566,25 @@ class TaskManagerView extends ItemView {
 		}
 
 		// Confirm deletion
-		const confirmed = confirm(`Delete task "${task.taskName}"?`);
-		if (!confirmed) return;
+		new ConfirmModal(
+			this.app,
+			`Delete task "${task.taskName}"?`,
+			async () => {
+				const content = await this.app.vault.read(file);
+				const lines = content.split('\n');
 
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-
-		if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
-			// Remove the line
-			lines.splice(task.lineNumber, 1);
-			await this.app.vault.modify(file, lines.join('\n'));
-			await this.loadTasks();
-			this.renderView();
-			new Notice(`Deleted task "${task.taskName}"`);
-		} else {
-			new Notice('Cannot delete virtual task');
-		}
+				if (task.lineNumber >= 0 && task.lineNumber < lines.length) {
+					// Remove the line
+					lines.splice(task.lineNumber, 1);
+					await this.app.vault.modify(file, lines.join('\n'));
+					await this.loadTasks();
+					this.renderView();
+					new Notice(`Deleted task "${task.taskName}"`);
+				} else {
+					new Notice('Cannot delete virtual task');
+				}
+			}
+		).open();
 	}
 
 	isValidDate(dateStr: string): boolean {
@@ -2107,20 +2157,22 @@ class TaskManagerView extends ItemView {
 		const viewType = this.selectedTimelineView.type;
 
 		switch (viewType) {
-			case 'this-week':
+			case 'this-week': {
 				// Start from today, end at end of current week (Sunday)
 				const dayOfWeek = today.getDay();
 				const daysUntilSunday = 7 - dayOfWeek;
 				endDate.setDate(endDate.getDate() + daysUntilSunday);
 				break;
+			}
 
-			case 'next-week':
+			case 'next-week': {
 				// Start from next Monday, end next Sunday
 				const currentDay = today.getDay();
 				const daysUntilNextMonday = currentDay === 0 ? 1 : 8 - currentDay;
 				startDate.setDate(today.getDate() + daysUntilNextMonday);
 				endDate.setDate(startDate.getDate() + 6);
 				break;
+			}
 
 			case 'this-month':
 				// Start from today, end at last day of current month
@@ -2428,20 +2480,23 @@ class TaskManagerView extends ItemView {
 		}
 
 		// Confirm deletion
-		const confirmed = confirm(`Delete timeline view "${view.name}"?`);
-		if (!confirmed) return;
+		new ConfirmModal(
+			this.app,
+			`Delete timeline view "${view.name}"?`,
+			() => {
+				// Remove from array
+				this.customTimelineViews.splice(index, 1);
 
-		// Remove from array
-		this.customTimelineViews.splice(index, 1);
+				// If deleted view was selected, switch to today
+				if (this.selectedTimelineView?.id === view.id) {
+					this.currentView = 'today';
+					this.selectedTimelineView = null;
+				}
 
-		// If deleted view was selected, switch to today
-		if (this.selectedTimelineView?.id === view.id) {
-			this.currentView = 'today';
-			this.selectedTimelineView = null;
-		}
-
-		this.renderView();
-		new Notice(`Deleted timeline view "${view.name}"`);
+				this.renderView();
+				new Notice(`Deleted timeline view "${view.name}"`);
+			}
+		).open();
 	}
 
 	showEditTimelineDialog(view: CustomTimelineView, index: number) {
@@ -2814,21 +2869,7 @@ class RecurringTaskModal extends Modal {
 // Modal for creating new tasks
 class NewTaskModal extends Modal {
 	view: TaskManagerView;
-	onSubmit: (taskData: {
-		name: string;
-		dueDate: string | null;
-		eta: string | null;
-		project: string | null;
-		section: string | null;
-		priority: string | null;
-		isRecurring: boolean;
-		recurringPattern: string | null;
-		recurringStarting: string | null;
-		recurringEnding: string | null;
-		recurringWDay: number[] | null;
-		recurringDay: number[] | null;
-		recurringMonth: string[] | null;
-	}) => void;
+	onSubmit: (taskData: NewTaskData) => void;
 
 	nameInput: HTMLInputElement;
 	dueDateInput: HTMLInputElement;
@@ -2848,7 +2889,7 @@ class NewTaskModal extends Modal {
 	dayInput: HTMLInputElement;
 	monthInput: HTMLInputElement;
 
-	constructor(app: App, view: TaskManagerView, onSubmit: (taskData: any) => void) {
+	constructor(app: App, view: TaskManagerView, onSubmit: (taskData: NewTaskData) => void) {
 		super(app);
 		this.view = view;
 		this.onSubmit = onSubmit;
@@ -3129,6 +3170,46 @@ class NewTaskModal extends Modal {
 	}
 }
 
+// Confirm Modal for confirmation dialogs
+class ConfirmModal extends Modal {
+	message: string;
+	onConfirm: () => void;
+
+	constructor(app: App, message: string, onConfirm: () => void) {
+		super(app);
+		this.message = message;
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('p', { text: this.message });
+
+		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+
+		const confirmBtn = buttonContainer.createEl('button', {
+			text: 'Confirm',
+			cls: 'mod-cta'
+		});
+		confirmBtn.addEventListener('click', () => {
+			this.close();
+			this.onConfirm();
+		});
+
+		const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+		cancelBtn.addEventListener('click', () => {
+			this.close();
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
+}
+
 // Settings Tab
 class TaskManagerSettingTab extends PluginSettingTab {
 	plugin: TaskManagerPlugin;
@@ -3142,7 +3223,9 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Task Manager Settings' });
+		new Setting(containerEl)
+			.setName('Task Manager Settings')
+			.setHeading();
 
 		new Setting(containerEl)
 			.setName('Task File')
@@ -3167,8 +3250,10 @@ class TaskManagerSettingTab extends PluginSettingTab {
 				}));
 
 		// Priority Labels Section
-		containerEl.createEl('h3', { text: 'Priority Labels' });
-		containerEl.createEl('p', { text: 'Manage custom priority labels for your tasks.' });
+		new Setting(containerEl)
+			.setName('Priority Labels')
+			.setDesc('Manage custom priority labels for your tasks.')
+			.setHeading();
 
 		// Container for priority labels
 		const priorityContainer = containerEl.createDiv({ cls: 'priority-labels-container' });
@@ -3191,20 +3276,37 @@ class TaskManagerSettingTab extends PluginSettingTab {
 					this.display(); // Refresh display
 				}));
 
-		containerEl.createEl('h3', { text: 'Task Format' });
-		containerEl.createEl('p', { text: 'Tasks should follow this format:' });
+		new Setting(containerEl)
+			.setName('Task Format')
+			.setDesc('Tasks should follow this format:')
+			.setHeading();
+
 		containerEl.createEl('pre', {
 			text: '- [ ] Task name due::2024-01-15 eta::1:30 priority::high #tlog/project/section',
 			cls: 'task-format-example'
 		});
 
-		containerEl.createEl('ul').innerHTML = `
-			<li><strong>Checkbox:</strong> - [ ] for todo, - [x] for done</li>
-			<li><strong>Due date:</strong> due::YYYY-MM-DD</li>
-			<li><strong>Estimated time:</strong> eta::HH:MM</li>
-			<li><strong>Priority:</strong> priority::label-id</li>
-			<li><strong>Project structure:</strong> ${this.plugin.settings.taskIdentifier}/project/section</li>
-		`;
+		const formatList = containerEl.createEl('ul');
+
+		const checkboxItem = formatList.createEl('li');
+		checkboxItem.createEl('strong', { text: 'Checkbox:' });
+		checkboxItem.appendText(' - [ ] for todo, - [x] for done');
+
+		const dueDateItem = formatList.createEl('li');
+		dueDateItem.createEl('strong', { text: 'Due date:' });
+		dueDateItem.appendText(' due::YYYY-MM-DD');
+
+		const etaItem = formatList.createEl('li');
+		etaItem.createEl('strong', { text: 'Estimated time:' });
+		etaItem.appendText(' eta::HH:MM');
+
+		const priorityItem = formatList.createEl('li');
+		priorityItem.createEl('strong', { text: 'Priority:' });
+		priorityItem.appendText(' priority::label-id');
+
+		const projectItem = formatList.createEl('li');
+		projectItem.createEl('strong', { text: 'Project structure:' });
+		projectItem.appendText(` ${this.plugin.settings.taskIdentifier}/project/section`);
 	}
 
 	renderPriorityLabels(container: HTMLElement) {

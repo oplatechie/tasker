@@ -107,7 +107,7 @@ export default class TaskManagerPlugin extends Plugin {
 
 		// Add ribbon icon
 		this.addRibbonIcon('checkmark', 'Task Manager', () => {
-			this.activateView();
+			this.activateView().catch(console.error);
 		});
 
 		// Add command to open task manager
@@ -115,7 +115,7 @@ export default class TaskManagerPlugin extends Plugin {
 			id: 'open-task-manager',
 			name: 'Open Task Manager',
 			callback: () => {
-				this.activateView();
+				this.activateView().catch(console.error);
 			}
 		});
 
@@ -136,7 +136,7 @@ export default class TaskManagerPlugin extends Plugin {
 							const view = leaves[0].view as TaskManagerView;
 							view.showNewTaskModal();
 						}
-					});
+					}).catch(console.error);
 				}
 			}
 		});
@@ -377,7 +377,7 @@ class TaskManagerView extends ItemView {
 		const priority = priorityMatch ? priorityMatch[1] : null;
 
 		// Extract tags and determine project/section
-		const tagRegex = /#[\w\/]+/g;
+		const tagRegex = /#[\w/]+/g;
 		const tags = line.match(tagRegex) || [];
 
 		let project: string | null = null;
@@ -408,7 +408,7 @@ class TaskManagerView extends ItemView {
 			.replace(/wday::\[([^\]]+)]/g, '')
 			.replace(/day::\[([^\]]+)]/g, '')
 			.replace(/month::\[([^\]]+)]/g, '')
-			.replace(/#[\w\/]+/g, '')
+			.replace(/#[\w/]+/g, '')
 			.trim();
 
 		return {
@@ -1082,13 +1082,13 @@ class TaskManagerView extends ItemView {
 					// Open the note in Obsidian
 					const file = this.app.vault.getAbstractFileByPath(noteName + '.md');
 					if (file instanceof TFile) {
-						this.app.workspace.getLeaf().openFile(file);
+						this.app.workspace.getLeaf().openFile(file).catch(console.error);
 					} else {
 						// Try to find the file by name
 						const files = this.app.vault.getMarkdownFiles();
 						const foundFile = files.find(f => f.basename === noteName);
 						if (foundFile) {
-							this.app.workspace.getLeaf().openFile(foundFile);
+							this.app.workspace.getLeaf().openFile(foundFile).catch(console.error);
 						} else {
 							new Notice(`Note "${noteName}" not found`);
 						}
@@ -3224,7 +3224,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Task Manager Settings')
+			.setName('Task Manager')
 			.setHeading();
 
 		new Setting(containerEl)

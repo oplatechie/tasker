@@ -1292,7 +1292,7 @@ class TaskManagerView extends ItemView {
 						.then(() => this.renderView())
 						.catch(console.error);
 				} else if (!this.isValidEta(newEta)) {
-					new Notice('Invalid ETA format. Use h:mm or hh:mm');
+					new Notice('Invalid eta format. Use h:mm or hh:mm');
 					etaSpan.setText(task.eta || '');
 				}
 			});
@@ -3257,7 +3257,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task file')
-			.setDesc('Path to the markdown file containing your tasks (e.g., tasks.md)')
+			.setDesc('path to the markdown file containing your tasks (e.g., tasks.md)')
 			.addText(text => text
 				.setPlaceholder('tasks.md')
 				.setValue(this.plugin.settings.taskFile)
@@ -3268,7 +3268,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task identifier')
-			.setDesc('Tag used to identify tasks (e.g., #tlog). Tasks can have nested structure like #tlog/project/section')
+			.setDesc('tag used to identify tasks (e.g., #tlog). Tasks can have nested structure like #tlog/project/section')
 			.addText(text => text
 				.setPlaceholder('#tlog')
 				.setValue(this.plugin.settings.taskIdentifier)
@@ -3280,7 +3280,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		// Priority Labels Section
 		new Setting(containerEl)
 			.setName('Priority labels')
-			.setDesc('Manage custom priority labels for your tasks.')
+			.setDesc('manage custom priority labels for your tasks.')
 			.setHeading();
 
 		// Container for priority labels
@@ -3306,7 +3306,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task format')
-			.setDesc('Tasks should follow this format:')
+			.setDesc('tasks should follow this format')
 			.setHeading();
 
 		containerEl.createEl('pre', {

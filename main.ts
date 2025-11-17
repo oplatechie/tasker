@@ -792,7 +792,7 @@ class TaskManagerView extends ItemView {
 		const sortSelect = sortContainer.createEl('select', { cls: 'sort-select' });
 
 		const options = [
-			{ value: 'dueDate', text: 'Due Date' },
+			{ value: 'dueDate', text: 'Due date' },
 			{ value: 'duration', text: 'Duration' },
 			{ value: 'alphabetical', text: 'Alphabetical' },
 			{ value: 'project', text: 'Project' },
@@ -817,7 +817,7 @@ class TaskManagerView extends ItemView {
 
 	renderTodayView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
-		header.createEl('h2', { text: 'today' });
+		header.createEl('h2', { text: 'Today' });
 
 		// Add sorting dropdown
 		this.renderSortDropdown(header);
@@ -865,7 +865,7 @@ class TaskManagerView extends ItemView {
 
 	renderDoneView(contentEl: HTMLElement) {
 		const header = contentEl.createDiv({ cls: 'content-header' });
-		header.createEl('h2', { text: 'done' });
+		header.createEl('h2', { text: 'Done' });
 
 		// Add sorting dropdown
 		this.renderSortDropdown(header);
@@ -1292,7 +1292,7 @@ class TaskManagerView extends ItemView {
 						.then(() => this.renderView())
 						.catch(console.error);
 				} else if (!this.isValidEta(newEta)) {
-					new Notice('Invalid ETA format. Use h:mm or hh:mm');
+					new Notice('Invalid ETA format. Use H:MM or HH:MM');
 					etaSpan.setText(task.eta || '');
 				}
 			});
@@ -2614,7 +2614,7 @@ class TimelineViewModal extends Modal {
 
 		// Name input
 		const nameContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		nameContainer.createEl('label', { text: 'View Name:' });
+		nameContainer.createEl('label', { text: 'View name:' });
 		this.nameInput = nameContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'e.g., Next 14 Days'
@@ -2690,7 +2690,7 @@ class RecurringTaskModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: 'Edit Recurring Task' });
+		contentEl.createEl('h2', { text: 'Edit recurring task' });
 
 		// Recurring pattern type (day/week/month/year)
 		const typeContainer = contentEl.createDiv({ cls: 'modal-input-container' });
@@ -2698,7 +2698,7 @@ class RecurringTaskModal extends Modal {
 		this.recurringTypeSelect = typeContainer.createEl('select');
 
 		const options = [
-			{ value: '', text: 'None (One-time task)' },
+			{ value: '', text: 'None (one-time task)' },
 			{ value: 'day', text: 'Daily' },
 			{ value: 'week', text: 'Weekly' },
 			{ value: 'month', text: 'Monthly' },
@@ -2737,7 +2737,7 @@ class RecurringTaskModal extends Modal {
 
 		// Starting date (with date picker)
 		const startingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		startingContainer.createEl('label', { text: 'Starting Date:' });
+		startingContainer.createEl('label', { text: 'Starting date:' });
 		this.startingInput = startingContainer.createEl('input', {
 			type: 'date'
 		});
@@ -2749,7 +2749,7 @@ class RecurringTaskModal extends Modal {
 
 		// Ending date (with date picker)
 		const endingContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		endingContainer.createEl('label', { text: 'Ending Date (optional):' });
+		endingContainer.createEl('label', { text: 'Ending date (optional):' });
 		this.endingInput = endingContainer.createEl('input', {
 			type: 'date'
 		});
@@ -2759,7 +2759,7 @@ class RecurringTaskModal extends Modal {
 
 		// Weekly: days of week
 		this.wdayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-wday' });
-		this.wdayContainer.createEl('label', { text: 'Weekly: Days of week' });
+		this.wdayContainer.createEl('label', { text: 'Weekly: days of week' });
 		const wdayGrid = this.wdayContainer.createDiv({ cls: 'checkbox-grid' });
 		const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 		dayNames.forEach((day, index) => {
@@ -2782,7 +2782,7 @@ class RecurringTaskModal extends Modal {
 
 		// Monthly: days of month
 		this.dayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-day' });
-		this.dayContainer.createEl('label', { text: 'Monthly: Days of month (comma-separated, e.g., 1,15,30):' });
+		this.dayContainer.createEl('label', { text: 'Monthly: days of month (comma-separated, e.g., 1,15,30):' });
 		this.dayInput = this.dayContainer.createEl('input', {
 			type: 'text',
 			placeholder: '1,15'
@@ -2798,7 +2798,7 @@ class RecurringTaskModal extends Modal {
 
 		// Yearly: specific dates
 		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
-		this.monthContainer.createEl('label', { text: 'Yearly: Dates (MM-DD format, comma-separated, e.g., 12-01,06-15):' });
+		this.monthContainer.createEl('label', { text: 'Yearly: dates (MM-DD format, comma-separated, e.g., 12-01,06-15):' });
 		this.monthInput = this.monthContainer.createEl('input', {
 			type: 'text',
 			placeholder: '12-01,06-15'
@@ -2924,7 +2924,7 @@ class NewTaskModal extends Modal {
 
 		// Task name
 		const nameContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		nameContainer.createEl('label', { text: 'Task Name:' });
+		nameContainer.createEl('label', { text: 'Task name:' });
 		this.nameInput = nameContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'Enter task name...'
@@ -2946,7 +2946,7 @@ class NewTaskModal extends Modal {
 
 		// ETA
 		const etaContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		etaContainer.createEl('label', { text: 'Estimated Time (H:MM):' });
+		etaContainer.createEl('label', { text: 'Estimated time (H:MM):' });
 		this.etaInput = etaContainer.createEl('input', {
 			type: 'text',
 			placeholder: '1:00'
@@ -3010,7 +3010,7 @@ class NewTaskModal extends Modal {
 
 		// Starting date (with date picker)
 		const startingContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-starting' });
-		startingContainer.createEl('label', { text: 'Starting Date:' });
+		startingContainer.createEl('label', { text: 'Starting date:' });
 		this.startingInput = startingContainer.createEl('input', {
 			type: 'date'
 		});
@@ -3018,14 +3018,14 @@ class NewTaskModal extends Modal {
 
 		// Ending date (with date picker)
 		const endingContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-ending' });
-		endingContainer.createEl('label', { text: 'Ending Date (optional):' });
+		endingContainer.createEl('label', { text: 'Ending date (optional):' });
 		this.endingInput = endingContainer.createEl('input', {
 			type: 'date'
 		});
 
 		// Weekly: Days of week
 		this.wdayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-wday' });
-		this.wdayContainer.createEl('label', { text: 'Weekly: Days of week' });
+		this.wdayContainer.createEl('label', { text: 'Weekly: days of week' });
 		const wdayGrid = this.wdayContainer.createDiv({ cls: 'checkbox-grid' });
 		const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 		weekdays.forEach((day, index) => {
@@ -3038,7 +3038,7 @@ class NewTaskModal extends Modal {
 
 		// Monthly: Days of month
 		this.dayContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-day' });
-		this.dayContainer.createEl('label', { text: 'Monthly: Days of month (comma-separated):' });
+		this.dayContainer.createEl('label', { text: 'Monthly: days of month (comma-separated):' });
 		this.dayInput = this.dayContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'e.g., 1,15,30'
@@ -3046,7 +3046,7 @@ class NewTaskModal extends Modal {
 
 		// Yearly: Dates
 		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
-		this.monthContainer.createEl('label', { text: 'Yearly: Dates (MM-DD, comma-separated):' });
+		this.monthContainer.createEl('label', { text: 'Yearly: dates (MM-DD, comma-separated):' });
 		this.monthInput = this.monthContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'e.g., 01-01,12-25'
@@ -3078,7 +3078,7 @@ class NewTaskModal extends Modal {
 		// Buttons
 		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
 
-		const submitBtn = buttonContainer.createEl('button', { text: 'Create Task', cls: 'mod-cta' });
+		const submitBtn = buttonContainer.createEl('button', { text: 'Create task', cls: 'mod-cta' });
 		submitBtn.addEventListener('click', () => {
 			this.submitTask();
 		});
@@ -3252,7 +3252,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Task Manager')
+			.setName('Task manager')
 			.setHeading();
 
 		new Setting(containerEl)
@@ -3291,7 +3291,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Add new priority label')
 			.addButton(button => button
-				.setButtonText('Add Label')
+				.setButtonText('Add label')
 				.onClick(async () => {
 					const newLabel: PriorityLabel = {
 						id: `priority-${Date.now()}`,
@@ -3310,7 +3310,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 			.setHeading();
 
 		containerEl.createEl('pre', {
-			text: '- [ ] Task name due::2024-01-15 eta::1:30 priority::high #tlog/project/section',
+			text: '- [ ] task name due::2024-01-15 eta::1:30 priority::high #tlog/project/section',
 			cls: 'task-format-example'
 		});
 

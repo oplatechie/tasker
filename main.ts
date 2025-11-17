@@ -1292,7 +1292,7 @@ class TaskManagerView extends ItemView {
 						.then(() => this.renderView())
 						.catch(console.error);
 				} else if (!this.isValidEta(newEta)) {
-					new Notice('Invalid ETA format. Use H:MM or HH:MM');
+					new Notice('Invalid ETA format. Use h:mm or hh:mm');
 					etaSpan.setText(task.eta || '');
 				}
 			});
@@ -2722,7 +2722,7 @@ class RecurringTaskModal extends Modal {
 
 		// Interval
 		const intervalContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		intervalContainer.createEl('label', { text: 'Every N (interval):' });
+		intervalContainer.createEl('label', { text: 'Every n (interval):' });
 		this.intervalInput = intervalContainer.createEl('input', {
 			type: 'number',
 			placeholder: '1'
@@ -2798,7 +2798,7 @@ class RecurringTaskModal extends Modal {
 
 		// Yearly: specific dates
 		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
-		this.monthContainer.createEl('label', { text: 'Yearly: dates (MM-DD format, comma-separated, e.g., 12-01,06-15):' });
+		this.monthContainer.createEl('label', { text: 'Yearly: dates (mm-dd format, comma-separated, e.g., 12-01,06-15):' });
 		this.monthInput = this.monthContainer.createEl('input', {
 			type: 'text',
 			placeholder: '12-01,06-15'
@@ -2946,7 +2946,7 @@ class NewTaskModal extends Modal {
 
 		// ETA
 		const etaContainer = contentEl.createDiv({ cls: 'modal-input-container' });
-		etaContainer.createEl('label', { text: 'Estimated time (H:MM):' });
+		etaContainer.createEl('label', { text: 'Estimated time (h:mm):' });
 		this.etaInput = etaContainer.createEl('input', {
 			type: 'text',
 			placeholder: '1:00'
@@ -3001,7 +3001,7 @@ class NewTaskModal extends Modal {
 
 		// Interval
 		const intervalContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-interval' });
-		intervalContainer.createEl('label', { text: 'Every N (interval):' });
+		intervalContainer.createEl('label', { text: 'Every n (interval):' });
 		this.intervalInput = intervalContainer.createEl('input', {
 			type: 'number',
 			placeholder: '1'
@@ -3046,7 +3046,7 @@ class NewTaskModal extends Modal {
 
 		// Yearly: Dates
 		this.monthContainer = contentEl.createDiv({ cls: 'modal-input-container recurring-month' });
-		this.monthContainer.createEl('label', { text: 'Yearly: dates (MM-DD, comma-separated):' });
+		this.monthContainer.createEl('label', { text: 'Yearly: dates (mm-dd, comma-separated):' });
 		this.monthInput = this.monthContainer.createEl('input', {
 			type: 'text',
 			placeholder: 'e.g., 01-01,12-25'
@@ -3356,7 +3356,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 			// Color input (text for hex)
 			labelSetting.addText(text => {
 				text
-					.setPlaceholder('#RRGGBB')
+					.setPlaceholder('#rrggbb')
 					.setValue(label.color)
 					.onChange(async (value) => {
 						// Validate hex color

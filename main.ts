@@ -3257,9 +3257,9 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task file')
-			.setDesc('path to the markdown file containing your tasks (e.g., tasks.md)')
+			.setDesc('Path to the markdown file containing your tasks')
 			.addText(text => text
-				.setPlaceholder('tasks.md')
+				.setPlaceholder('Example: tasks.md')
 				.setValue(this.plugin.settings.taskFile)
 				.onChange(async (value) => {
 					this.plugin.settings.taskFile = value;
@@ -3268,7 +3268,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task identifier')
-			.setDesc('tag used to identify tasks (e.g., #tlog). Tasks can have nested structure like #tlog/project/section')
+			.setDesc('Tag used to identify tasks. Tasks can have nested structure like #tlog/project/section')
 			.addText(text => text
 				.setPlaceholder('#tlog')
 				.setValue(this.plugin.settings.taskIdentifier)
@@ -3280,7 +3280,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 		// Priority Labels Section
 		new Setting(containerEl)
 			.setName('Priority labels')
-			.setDesc('manage custom priority labels for your tasks.')
+			.setDesc('Manage custom priority labels for your tasks')
 			.setHeading();
 
 		// Container for priority labels
@@ -3306,7 +3306,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task format')
-			.setDesc('tasks should follow this format')
+			.setDesc('Tasks should follow this format')
 			.setHeading();
 
 		containerEl.createEl('pre', {

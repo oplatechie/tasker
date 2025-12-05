@@ -1,0 +1,25 @@
+{
+  "taskFile": "pages/tasks2.md",
+  "taskIdentifier": "#tlog",
+  "sortBy": "dueDate",
+  "priorityLabels": [
+    {
+      "id": "high",
+      "name": "High",
+      "color": "#ff4444",
+      "order": 1
+    },
+    {
+      "id": "medium",
+      "name": "Medium",
+      "color": "#ffaa00",
+      "order": 2
+    },
+    {
+      "id": "low",
+      "name": "Low",
+      "color": "#4444ff",
+      "order": 3
+    }
+  ]
+}

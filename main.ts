@@ -3257,7 +3257,7 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Task file')
-			.setDesc('Path to the markdown file containing your tasks')
+			.setDesc('Path to the Markdown file containing your tasks')
 			.addText(text => text
 				.setPlaceholder('Example: tasks.md')
 				.setValue(this.plugin.settings.taskFile)
